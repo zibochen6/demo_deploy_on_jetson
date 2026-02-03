@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{{ demo.name }} - Jetson Demo</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Manrope:wght@400;500;600&family=Space+Grotesk:wght@600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/styles.css" />
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-carbon text-slate-100" data-demo-id="{{ demo.id }}">
+  <div class="noise-overlay"></div>
+  <header class="topbar">
+    <a class="brand" href="/">seeed studio</a>
+    <nav class="pill-nav">
+      <span class="pill pill-active">Demo</span>
+      <span class="pill">Jetson</span>
+      <span class="pill">YOLO</span>
+    </nav>
+  </header>
+
+  <main class="page">
+    <section class="hero hero-compact">
+      <div>
+        <p class="hero-kicker">{{ demo.tags | join(' / ') }}</p>
+        <h1 class="hero-title">{{ demo.name }}</h1>
+        <p class="hero-desc">{{ demo.description }}</p>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2 class="panel-title">A. 连接 Jetson</h2>
+      <div class="panel-grid">
+        <div class="panel">
+          <div class="form-grid">
+            <label>
+              <span>Jetson IP</span>
+              <input type="text" id="host" placeholder="192.168.1.10" />
+            </label>
+            <label>
+              <span>SSH 端口</span>
+              <input type="number" id="port" value="22" />
+            </label>
+            <label>
+              <span>用户名</span>
+              <input type="text" id="username" value="seeed" />
+            </label>
+            <label>
+              <span>密码</span>
+              <input type="password" id="password" placeholder="SSH 密码" autocomplete="off" />
+            </label>
+            <label>
+              <span>sudo 密码（可选）</span>
+              <input type="password" id="sudoPassword" placeholder="若与 SSH 不同可填写" autocomplete="off" />
+            </label>
+          </div>
+          <div class="form-actions">
+            <button class="cta-btn" id="btn-connect">连接</button>
+            <span class="status" id="connect-status">未连接</span>
+            <button class="ghost-btn" id="btn-sudo" disabled>保存 sudo 密码</button>
+            <span class="status" id="sudo-status"></span>
+          </div>
+        </div>
+        <div class="panel">
+          <h3>连接要求</h3>
+          <ul class="panel-list">
+            <li>PC 与 Jetson 在同一网络</li>
+            <li>账号具备 sudo 权限</li>
+            <li>确保摄像头可用</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2 class="panel-title">B. 一键部署</h2>
+      <div class="panel-grid">
+        <div class="panel">
+          <div class="form-actions">
+            <button class="cta-btn" id="btn-deploy" disabled>一键部署</button>
+            <button class="ghost-btn" id="btn-cancel" disabled>取消部署</button>
+            <span class="status" id="deploy-status">等待连接</span>
+          </div>
+          <div class="toggle">
+            <label><input type="checkbox" id="auto-scroll" checked /> 自动滚动</label>
+          </div>
+          <pre class="log-box" id="deploy-log"></pre>
+        </div>
+        <div class="panel">
+          <h3>部署内容</h3>
+          <ul class="panel-list">
+            <li>自动安装 PyTorch 与依赖</li>
+            <li>下载 YOLO 预训练模型</li>
+            <li>准备推理服务环境</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2 class="panel-title">C. 运行 Demo</h2>
+      <div class="panel-grid">
+        <div class="panel">
+          <div class="form-actions">
+            <button class="cta-btn" id="btn-run" disabled>运行 Demo</button>
+            <button class="ghost-btn" id="btn-stop" disabled>停止 Demo</button>
+            <span class="status" id="run-status">未运行</span>
+          </div>
+          <div class="video-wrap">
+            <img id="video" alt="YOLO Stream" />
+          </div>
+          <pre class="log-box" id="run-log"></pre>
+        </div>
+        <div class="panel">
+          <h3>运行提示</h3>
+          <ul class="panel-list">
+            <li>摄像头被占用时会失败</li>
+            <li>首次启动模型加载较慢</li>
+            <li>停止后端口会自动释放</li>
+          </ul>
+          <div class="error-box" id="run-error" hidden></div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

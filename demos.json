@@ -1,0 +1,25 @@
+{
+  "demos": [
+    {
+      "id": "yolo_demo",
+      "name": "YOLO Realtime Detection",
+      "description": "Deploy YOLO on Jetson and stream real-time camera detection to the PC browser.",
+      "tags": ["Jetson", "Camera", "YOLO"],
+      "deploy": {
+        "local_script_path": "demo_scripts/setup_yolo11.sh",
+        "remote_dir": "/tmp/oneclick_demos/yolo_demo",
+        "remote_script_name": "setup_yolo11.sh",
+        "run_as_sudo": true
+      },
+      "run": {
+        "remote_py_script_path": "jetson_payload/yolo_stream_server.py",
+        "remote_port": 8090,
+        "default_camera": "usb",
+        "usb_index": 0,
+        "csi_params": {"width": 1280, "height": 720, "flip": 0},
+        "model_hint": "yolo11n.pt",
+        "venv_rel_path": "yolo11/.venv/bin/python"
+      }
+    }
+  ]
+}
