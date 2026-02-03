@@ -511,6 +511,27 @@ def _upload_stream_script_via_sudo(client, remote_path: str, local_path: str, pa
     return status == 0
 
 
+def _chown_stream_script_via_sudo(client, remote_path: str, username: str, password: str) -> bool:
+    """通过 SSH 执行 sudo chown 将远程文件属主改为当前用户，便于后续以该用户执行。成功返回 True。"""
+    escaped = remote_path.replace("'", "'\"'\"'")
+    ch = client.get_transport().open_session()
+    ch.exec_command(f"sudo -S chown '{username}:{username}' '{escaped}'")
+    ch.send((password + "\n").encode("utf-8"))
+    ch.shutdown_write()
+    while not ch.exit_status_ready():
+        if ch.recv_ready():
+            ch.recv(65536)
+        if ch.recv_stderr_ready():
+            ch.recv_stderr(65536)
+    while ch.recv_ready():
+        ch.recv(65536)
+    while ch.recv_stderr_ready():
+        ch.recv_stderr(65536)
+    status = ch.recv_exit_status()
+    ch.close()
+    return status == 0
+
+
 @app.get("/api/demos/{demo_id}/stream")
 async def api_demo_stream(demo_id: str, request: Request):
     log = _stream_log()
@@ -581,6 +602,11 @@ async def api_demo_stream(demo_id: str, request: Request):
                     if _upload_stream_script_via_sudo(client, remote_stream_script, local_stream_script, target["stream_upload_password"]):
                         upload_ok = True
                         log.info("stream upload ok via sudo tee -> %s", remote_stream_script)
+                        username = target.get("username", "seeed")
+                        if _chown_stream_script_via_sudo(client, remote_stream_script, username, target["stream_upload_password"]):
+                            log.info("stream chown ok -> %s (owner %s)", remote_stream_script, username)
+                        else:
+                            log.warning("stream chown failed (file may be root-owned); run may still work")
                     else:
                         _last_stream_error[demo_id] = err_upload + "；sudo 写入失败（请检查密码或 sudo 权限）。"
                 except Exception as e3:
