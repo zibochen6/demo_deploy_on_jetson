@@ -14,12 +14,6 @@ def _err(msg: str) -> None:
     sys.stderr.flush()
 
 
-# 若在终端直接运行，stdout 会输出二进制 MJPEG，导致终端乱码；此处直接退出并提示
-if sys.stdout.isatty():
-    _err("stream_yolo 向 stdout 输出二进制 MJPEG，不适合在终端直接运行。请通过网页「运行 Demo」查看推流，或重定向: stream_yolo.py > /dev/null")
-    sys.exit(0)
-
-_err("stream_yolo starting...")
 PROJECT_DIR = os.environ.get("YOLO11_PROJECT_DIR", "")
 MODEL_PATH = os.environ.get("YOLO11_MODEL_PATH", "")
 CAMERA_ID = int(os.environ.get("YOLO11_CAMERA_ID", "0"))
@@ -32,13 +26,9 @@ if not os.path.isfile(MODEL_PATH):
     sys.exit(1)
 
 os.chdir(PROJECT_DIR)
-_err("loading cv2 and ultralytics...")
-try:
-    import cv2  # noqa: E402
-    from ultralytics import YOLO  # noqa: E402
-except Exception as e:
-    _err(f"import error: {e}")
-    raise
+
+import cv2  # noqa: E402
+from ultralytics import YOLO  # noqa: E402
 
 
 def _open_camera():

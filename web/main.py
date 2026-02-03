@@ -49,6 +49,7 @@ _sessions: dict[str, dict] = {}
 _deploy_state: dict[str, dict] = {}
 _stream_processes: dict[str, subprocess.Popen] = {}
 _stream_channels: dict[str, paramiko.Channel] = {}
+_stream_stderr_collector: dict[str, list] = {}  # demo_id -> list of bytes (SSH 模式并行采集 stderr)
 _last_stream_error: dict[str, str] = {}
 MJPEG_FIRST_FRAME_TIMEOUT = 45
 
@@ -441,6 +442,28 @@ def _stream_yolo_reader_ssh(channel, frame_queue: queue.Queue) -> None:
         frame_queue.put(None)
 
 
+def _stream_yolo_stderr_reader_ssh(channel, stderr_parts: list) -> None:
+    """并行读取 SSH channel 的 stderr，写入 stderr_parts（list of bytes）。"""
+    import time
+    try:
+        while True:
+            if channel.recv_stderr_ready():
+                data = channel.recv_stderr(8192)
+                if data:
+                    stderr_parts.append(data)
+            elif channel.exit_status_ready():
+                time.sleep(0.1)
+                while channel.recv_stderr_ready():
+                    data = channel.recv_stderr(8192)
+                    if data:
+                        stderr_parts.append(data)
+                break
+            else:
+                time.sleep(0.05)
+    except Exception:
+        pass
+
+
 def _wait_first_frame(frame_queue: queue.Queue, timeout: float):
     return frame_queue.get(timeout=timeout)
 
@@ -578,6 +601,9 @@ async def api_demo_stream(demo_id: str, request: Request):
                 raise HTTPException(500, err_exec)
             log.info("stream channel opened, waiting first frame (timeout=60s)")
         _stream_channels[demo_id] = channel
+        stderr_parts = []
+        _stream_stderr_collector[demo_id] = stderr_parts
+        threading.Thread(target=_stream_yolo_stderr_reader_ssh, args=(channel, stderr_parts), daemon=True).start()
         frame_queue = queue.Queue()
         thread = threading.Thread(target=_stream_yolo_reader_ssh, args=(channel, frame_queue), daemon=True)
         thread.start()
@@ -629,22 +655,17 @@ async def api_demo_stream(demo_id: str, request: Request):
             ch = _stream_channels.get(demo_id)
             if ch:
                 try:
-                    parts = []
-                    for _ in range(100):
-                        if not ch.recv_stderr_ready():
-                            break
-                        data = ch.recv_stderr(8192)
-                        if not data:
-                            break
-                        parts.append(data.decode("utf-8", errors="replace"))
-                    stderr_text = "".join(parts).strip()
-                    if not ch.exit_status_ready():
-                        ch.close()
-                    else:
+                    import time
+                    time.sleep(0.2)
+                    collected = _stream_stderr_collector.pop(demo_id, [])
+                    stderr_text = b"".join(collected).decode("utf-8", errors="replace").strip()
+                    if ch.exit_status_ready():
                         exit_status = ch.recv_exit_status()
-                        ch.close()
+                    ch.close()
                 except Exception as e:
                     log.warning("stream reading stderr/exit_status: %s", e)
+                finally:
+                    _stream_stderr_collector.pop(demo_id, None)
             _stream_channels.pop(demo_id, None)
         if not target and demo_id in _stream_processes:
             proc = _stream_processes[demo_id]
@@ -667,7 +688,8 @@ async def api_demo_stream(demo_id: str, request: Request):
         if stderr_text:
             err_msg = err_msg + "\n\n进程 stderr:\n" + stderr_text[:1500]
         _last_stream_error[demo_id] = err_msg
-        log.warning("stream 503 exit_status=%s stderr_len=%d: %s", exit_status, len(stderr_text), err_msg[:200])
+        # 仅记录摘要，不把 stderr 内容打日志（可能含二进制或乱码）
+        log.warning("stream 503 demo_id=%s exit_status=%s stderr_len=%d", demo_id, exit_status, len(stderr_text))
         raise HTTPException(503, err_msg)
 
     log.info("stream first frame ok demo_id=%s", demo_id)
@@ -688,6 +710,7 @@ async def api_demo_stream(demo_id: str, request: Request):
                 except Exception:
                     pass
                 _stream_channels.pop(demo_id, None)
+                _stream_stderr_collector.pop(demo_id, None)
             if demo_id in _stream_processes:
                 proc = _stream_processes[demo_id]
                 proc.terminate()
