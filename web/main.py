@@ -50,6 +50,7 @@ _deploy_state: dict[str, dict] = {}
 _stream_processes: dict[str, subprocess.Popen] = {}
 _stream_channels: dict[str, paramiko.Channel] = {}
 _stream_stderr_collector: dict[str, list] = {}  # demo_id -> list of bytes (SSH 模式并行采集 stderr)
+_stream_stderr_threads: dict[str, threading.Thread] = {}  # demo_id -> stderr reader thread (SSH)
 _last_stream_error: dict[str, str] = {}
 MJPEG_FIRST_FRAME_TIMEOUT = 45
 
@@ -599,11 +600,13 @@ async def api_demo_stream(demo_id: str, request: Request):
                 err_exec = f"SSH 执行推流失败: {e}"
                 _last_stream_error[demo_id] = err_exec
                 raise HTTPException(500, err_exec)
-            log.info("stream channel opened, waiting first frame (timeout=60s)")
+            log.info("stream channel opened, waiting first frame (timeout=90s)")
         _stream_channels[demo_id] = channel
         stderr_parts = []
         _stream_stderr_collector[demo_id] = stderr_parts
-        threading.Thread(target=_stream_yolo_stderr_reader_ssh, args=(channel, stderr_parts), daemon=True).start()
+        stderr_thread = threading.Thread(target=_stream_yolo_stderr_reader_ssh, args=(channel, stderr_parts), daemon=True)
+        _stream_stderr_threads[demo_id] = stderr_thread
+        stderr_thread.start()
         frame_queue = queue.Queue()
         thread = threading.Thread(target=_stream_yolo_reader_ssh, args=(channel, frame_queue), daemon=True)
         thread.start()
@@ -622,7 +625,7 @@ async def api_demo_stream(demo_id: str, request: Request):
 
     first_frame_timeout = MJPEG_FIRST_FRAME_TIMEOUT
     if target:
-        first_frame_timeout = 60
+        first_frame_timeout = 90
     loop = asyncio.get_event_loop()
     try:
         first_frame = await asyncio.wait_for(
@@ -656,16 +659,22 @@ async def api_demo_stream(demo_id: str, request: Request):
             if ch:
                 try:
                     import time
-                    time.sleep(0.2)
+                    stderr_thread = _stream_stderr_threads.get(demo_id)
+                    if stderr_thread is not None:
+                        stderr_thread.join(timeout=1.0)
                     collected = _stream_stderr_collector.pop(demo_id, [])
                     stderr_text = b"".join(collected).decode("utf-8", errors="replace").strip()
-                    if ch.exit_status_ready():
-                        exit_status = ch.recv_exit_status()
+                    for _ in range(20):
+                        if ch.exit_status_ready():
+                            exit_status = ch.recv_exit_status()
+                            break
+                        time.sleep(0.05)
                     ch.close()
                 except Exception as e:
                     log.warning("stream reading stderr/exit_status: %s", e)
                 finally:
                     _stream_stderr_collector.pop(demo_id, None)
+                    _stream_stderr_threads.pop(demo_id, None)
             _stream_channels.pop(demo_id, None)
         if not target and demo_id in _stream_processes:
             proc = _stream_processes[demo_id]
@@ -711,6 +720,7 @@ async def api_demo_stream(demo_id: str, request: Request):
                     pass
                 _stream_channels.pop(demo_id, None)
                 _stream_stderr_collector.pop(demo_id, None)
+                _stream_stderr_threads.pop(demo_id, None)
             if demo_id in _stream_processes:
                 proc = _stream_processes[demo_id]
                 proc.terminate()
@@ -729,7 +739,7 @@ async def api_demo_stream(demo_id: str, request: Request):
 
 def _shutdown_and_exit(*_args):
     """Ctrl+C / kill 时关闭 SSH、结束子进程并退出，便于释放端口。"""
-    global _current_target, _deploy_state, _stream_processes, _stream_channels
+    global _current_target, _deploy_state, _stream_processes, _stream_channels, _stream_stderr_collector, _stream_stderr_threads
     if _current_target and _current_target.get("client"):
         try:
             _current_target["client"].close()
@@ -770,6 +780,8 @@ def _shutdown_and_exit(*_args):
         except Exception:
             pass
     _stream_channels.clear()
+    _stream_stderr_collector.clear()
+    _stream_stderr_threads.clear()
     sys.exit(0)
 
 

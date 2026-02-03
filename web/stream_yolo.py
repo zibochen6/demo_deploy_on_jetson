@@ -19,6 +19,9 @@ if sys.stdout.isatty():
     _err("stream_yolo 向 stdout 输出二进制 MJPEG，不适合在终端直接运行。请通过网页「运行 Demo」查看推流，或重定向: stream_yolo.py > /dev/null")
     sys.exit(0)
 
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(line_buffering=True)
+
 _err("stream_yolo starting...")
 PROJECT_DIR = os.environ.get("YOLO11_PROJECT_DIR", "")
 MODEL_PATH = os.environ.get("YOLO11_MODEL_PATH", "")
@@ -63,13 +66,20 @@ def main() -> None:
     try:
         _err("Loading YOLO model...")
         model = YOLO(MODEL_PATH)
+        _err("YOLO model loaded.")
+        _err("Opening camera...")
         cap = _open_camera()
+        _err("Camera opened.")
         _err("Streaming frames...")
         try:
+            first_frame = True
             while True:
                 ret, frame = cap.read()
                 if not ret:
                     break
+                if first_frame:
+                    _err("First frame encoding...")
+                    first_frame = False
                 results = model(frame, verbose=False)
                 frame_annotated = results[0].plot()
                 _, jpeg = cv2.imencode(".jpg", frame_annotated)
