@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Jetson Demo 平台 - Seeed Studio</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { font-family: system-ui, sans-serif; margin: 0; padding: 0; background: #0f0f0f; color: #e5e5e5; min-height: 100vh; }
+    .header { background: #1a1a1a; border-bottom: 1px solid #2d3748; padding: 0.75rem 1.5rem; display: flex; align-items: center; justify-content: space-between; }
+    .header-logo { font-weight: 700; font-size: 1.1rem; color: #fff; text-decoration: none; }
+    .header-links a { color: #9ca3af; text-decoration: none; font-size: 0.9rem; }
+    .header-links a:hover { color: #fff; }
+    .main { max-width: 900px; margin: 0 auto; padding: 1.5rem; }
+    .hero-title { font-size: 1.75rem; font-weight: 700; margin: 0 0 0.5rem; color: #fff; }
+    .hero-desc { color: #9ca3af; font-size: 0.95rem; margin: 0 0 1.5rem; line-height: 1.5; }
+    .section { background: #1a1a1a; border: 1px solid #2d3748; border-radius: 10px; padding: 1.25rem; margin-bottom: 1.5rem; }
+    .section h2 { font-size: 1rem; margin: 0 0 0.75rem; color: #9ca3af; font-weight: 600; }
+    .form-row { margin-bottom: 0.75rem; }
+    .form-row label { display: block; font-size: 0.85rem; color: #9ca3af; margin-bottom: 0.25rem; }
+    .form-row input { width: 100%; max-width: 280px; padding: 0.5rem 0.75rem; border-radius: 6px; border: 1px solid #374151; background: #111; color: #e5e5e5; font-size: 0.9rem; }
+    .form-row input::placeholder { color: #6b7280; }
+    .btn { padding: 0.5rem 1rem; border-radius: 8px; border: none; cursor: pointer; font-size: 0.9rem; font-weight: 500; }
+    .btn-primary { background: #00c853; color: #fff; }
+    .btn-primary:hover { background: #00a843; }
+    .btn-primary:disabled { background: #374151; color: #9ca3af; cursor: not-allowed; }
+    .status { font-size: 0.9rem; margin-top: 0.5rem; }
+    .status.connected { color: #00c853; }
+    .status.disconnected { color: #ef4444; }
+    .cards-wrap { display: flex; flex-wrap: wrap; gap: 1rem; margin-top: 0.5rem; }
+    .card { background: #f8f9fa; color: #1a1a1a; border-radius: 10px; padding: 1.25rem; max-width: 360px; border: 1px solid #e5e7eb; }
+    .card h3 { margin: 0 0 0.5rem; font-size: 1.1rem; font-weight: 600; }
+    .card p { margin: 0 0 1rem; font-size: 0.9rem; color: #4b5563; line-height: 1.5; }
+    .card-badge { font-size: 0.8rem; color: #00c853; font-weight: 500; }
+    .card a.btn-primary { display: inline-block; padding: 0.5rem 1rem; background: #00c853; color: #fff; text-decoration: none; border-radius: 8px; font-size: 0.9rem; font-weight: 500; }
+    .card a.btn-primary:hover { background: #00a843; }
+    .card a.btn-primary.disabled { background: #9ca3af; pointer-events: none; }
+  </style>
+</head>
+<body>
+  <header class="header">
+    <a href="/" class="header-logo">seeed studio</a>
+    <nav class="header-links"><a href="/">Demo 平台</a></nav>
+  </header>
+  <main class="main">
+    <h1 class="hero-title">Jetson Demo 平台</h1>
+    <p class="hero-desc">在 PC 上打开本页面，连接 Jetson 后即可一键部署 Demo 并查看实时画面。未连接时可在 Jetson 本机使用本地模式。</p>
+
+    <div class="section">
+      <h2>连接 Jetson</h2>
+      <div class="form-row">
+        <label>Jetson IP 或主机名</label>
+        <input type="text" id="host" placeholder="例如 192.168.1.100" />
+      </div>
+      <div class="form-row">
+        <label>SSH 端口</label>
+        <input type="number" id="port" value="22" placeholder="22" />
+      </div>
+      <div class="form-row">
+        <label>用户名</label>
+        <input type="text" id="username" value="seeed" placeholder="seeed" />
+      </div>
+      <div class="form-row">
+        <label>密码</label>
+        <input type="password" id="password" placeholder="SSH 登录密码" autocomplete="off" />
+      </div>
+      <div class="form-row">
+        <label>Jetson 项目路径（可选）</label>
+        <input type="text" id="jetsonPath" placeholder="/home/seeed/setup" />
+      </div>
+      <p>
+        <button class="btn btn-primary" id="btnConnect">连接</button>
+        <span class="status disconnected" id="connectStatus">未连接</span>
+      </p>
+    </div>
+
+    <div class="section">
+      <h2>可选 Demo</h2>
+      <div class="cards-wrap" id="cards"></div>
+    </div>
+  </main>
+  <script>
+    const host = document.getElementById('host');
+    const port = document.getElementById('port');
+    const username = document.getElementById('username');
+    const password = document.getElementById('password');
+    const jetsonPath = document.getElementById('jetsonPath');
+    const btnConnect = document.getElementById('btnConnect');
+    const connectStatus = document.getElementById('connectStatus');
+    const cards = document.getElementById('cards');
+
+    function setConnected(connected, hostText) {
+      if (connected) {
+        connectStatus.textContent = '已连接: ' + (hostText || '');
+        connectStatus.className = 'status connected';
+      } else {
+        connectStatus.textContent = '未连接';
+        connectStatus.className = 'status disconnected';
+      }
+    }
+
+    async function checkStatus() {
+      try {
+        const r = await fetch('/api/connect/status');
+        const d = await r.json();
+        setConnected(d.connected, d.host);
+        return d.connected;
+      } catch (e) {
+        setConnected(false);
+        return false;
+      }
+    }
+
+    btnConnect.addEventListener('click', async function () {
+      const h = (host.value || '').trim();
+      if (!h) {
+        connectStatus.textContent = '请输入 Jetson IP';
+        connectStatus.className = 'status disconnected';
+        return;
+      }
+      btnConnect.disabled = true;
+      connectStatus.textContent = '正在连接…';
+      try {
+        const r = await fetch('/api/connect', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            host: h,
+            port: parseInt(port.value, 10) || 22,
+            username: (username.value || 'seeed').trim(),
+            password: (password.value || '').trim() || null,
+            jetson_project_path: (jetsonPath.value || '').trim() || null
+          })
+        });
+        if (!r.ok) {
+          const err = await r.json().catch(() => ({ detail: r.statusText }));
+          throw new Error(err.detail || r.statusText);
+        }
+        const d = await r.json();
+        setConnected(true, d.host);
+        if (d.session_id) localStorage.setItem('session_id', d.session_id);
+      } catch (e) {
+        connectStatus.textContent = '连接失败: ' + e.message;
+        connectStatus.className = 'status disconnected';
+      }
+      btnConnect.disabled = false;
+    });
+
+    async function loadDemos() {
+      const connected = await checkStatus();
+      const res = await fetch('/api/demos');
+      const { demos } = await res.json();
+      cards.innerHTML = '';
+      for (const d of demos) {
+        const statusRes = await fetch('/api/demos/' + encodeURIComponent(d.id) + '/status').catch(() => null);
+        let deployed = false;
+        if (statusRes && statusRes.ok) {
+          const data = await statusRes.json();
+          deployed = data.deployed;
+        }
+        const el = document.createElement('div');
+        el.className = 'card';
+        const linkClass = connected ? 'btn-primary' : 'btn-primary disabled';
+        el.innerHTML =
+          '<h3>' + escapeHtml(d.name) + '</h3>' +
+          '<p>' + escapeHtml(d.description) + '</p>' +
+          (deployed ? '<span class="card-badge">已部署</span> ' : '') +
+          '<a href="/demo?id=' + encodeURIComponent(d.id) + '" class="' + linkClass + '">进入 / 一键部署</a>';
+        cards.appendChild(el);
+      }
+      if (!connected) {
+        const tip = document.createElement('p');
+        tip.style.color = '#9ca3af';
+        tip.style.fontSize = '0.85rem';
+        tip.textContent = '未连接 Jetson 时，将使用本机（本地模式）；连接后将在 Jetson 上部署与推流。';
+        cards.insertBefore(tip, cards.firstChild);
+      }
+    }
+    function escapeHtml(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+    loadDemos();
+  </script>
+</body>
+</html>

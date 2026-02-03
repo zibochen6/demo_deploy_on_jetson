@@ -1,0 +1,12 @@
+需求：实现一个自动配置开发环境的脚本！只需运行脚本自动实现开发环境配置
+
+虚拟环境；管理使用uv，比如现在我要实现一键配置yolo11的环境，运行脚本就会创建一个yolo11的文件夹，在里面配置好依赖和环境！
+
+我的设备是Jetson orin nx 16g Jetpack 6.2
+cuda和cudnn都是配置好的！
+
+需要下载安装的torch 、torchison、在这：
+参考官方教程：https://docs.ultralytics.com/guides/nvidia-jetson/#install-pytorch-and-torchvision
+
+下载预训练模型：yolo11的预训练模型在这：https://github.com/ultralytics/assets/releases/download/v8.3.0/yolo11n.pt
+

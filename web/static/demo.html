@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Demo 详情 - Jetson Demo 平台</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { font-family: system-ui, sans-serif; margin: 0; padding: 0; background: #0f0f0f; color: #e5e5e5; min-height: 100vh; }
+    .header { background: #1a1a1a; border-bottom: 1px solid #2d3748; padding: 0.75rem 1.5rem; display: flex; align-items: center; justify-content: space-between; }
+    .header-logo { font-weight: 700; font-size: 1.1rem; color: #fff; text-decoration: none; }
+    .header-links a { color: #00c853; text-decoration: none; font-size: 0.9rem; }
+    .header-links a:hover { text-decoration: underline; }
+    .main { max-width: 900px; margin: 0 auto; padding: 1.5rem; }
+    .breadcrumb { margin-bottom: 1rem; font-size: 0.9rem; color: #6b7280; }
+    .breadcrumb a { color: #00c853; text-decoration: none; }
+    h1 { font-size: 1.5rem; margin: 0 0 1.5rem; color: #fff; }
+    .section { background: #1a1a1a; border: 1px solid #2d3748; border-radius: 10px; padding: 1.25rem; margin-bottom: 1.5rem; }
+    .section h2 { font-size: 1rem; margin: 0 0 0.75rem; color: #9ca3af; font-weight: 600; }
+    .progress-wrap { display: flex; align-items: center; gap: 0.75rem; padding: 0.75rem 0; margin-bottom: 0.5rem; }
+    .spinner { width: 20px; height: 20px; border: 2px solid #374151; border-top-color: #00c853; border-radius: 50%; animation: spin 0.8s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .progress-text { color: #9ca3af; font-size: 0.9rem; }
+    .log { background: #0d0d0d; border: 1px solid #2d3748; border-radius: 8px; padding: 0.75rem; font-family: ui-monospace, monospace; font-size: 0.8rem; max-height: 320px; overflow-y: auto; white-space: pre-wrap; word-break: break-all; color: #d1d5db; }
+    .log:empty::before { content: '部署日志将在此显示…'; color: #6b7280; }
+    .password-input { margin: 0.5rem 0; padding: 0.5rem 0.75rem; width: 220px; border-radius: 6px; border: 1px solid #374151; background: #111; color: #e5e5e5; font-size: 0.9rem; }
+    .btn { padding: 0.5rem 1rem; border-radius: 8px; border: none; cursor: pointer; font-size: 0.9rem; font-weight: 500; }
+    .btn-primary { background: #00c853; color: #fff; }
+    .btn-primary:hover { background: #00a843; }
+    .btn-primary:disabled { background: #374151; color: #9ca3af; cursor: not-allowed; }
+    .btn-secondary { background: #374151; color: #e5e5e5; }
+    .btn-secondary:hover { background: #4b5563; }
+    .status { font-size: 0.85rem; color: #9ca3af; margin-left: 0.5rem; }
+    .deploy-status-done { color: #00c853; }
+    .deploy-status-err { color: #ef4444; }
+    .run-section.hidden { display: none !important; }
+    .video-wrap { background: #000; border-radius: 8px; overflow: hidden; max-width: 640px; border: 1px solid #2d3748; }
+    .video-wrap img { display: block; width: 100%; height: auto; }
+    .video-wrap .placeholder { padding: 2rem; text-align: center; color: #6b7280; font-size: 0.9rem; }
+    .stream-error { margin-top: 0.75rem; padding: 0.75rem; background: #1a1a1a; border: 1px solid #ef4444; border-radius: 6px; font-size: 0.8rem; color: #fca5a5; white-space: pre-wrap; word-break: break-all; }
+  </style>
+</head>
+<body>
+  <header class="header">
+    <a href="/" class="header-logo">seeed studio</a>
+    <nav class="header-links"><a href="/">← 返回 Demo 列表</a></nav>
+  </header>
+  <main class="main">
+    <div class="breadcrumb"><a href="/">Demo 平台</a> / <span id="demoIdLabel">Demo</span></div>
+    <h1 id="demoTitle">Demo 详情</h1>
+
+    <div class="section">
+      <h2>一键部署</h2>
+      <div class="progress-wrap" id="progressWrap" style="display: none;">
+        <div class="spinner"></div>
+        <span class="progress-text" id="progressText">正在配置环境，请稍等…</span>
+      </div>
+      <p>
+        <label>密码（可选，脚本内需要 sudo 时填写，仅本地模式）：<br>
+          <input type="password" class="password-input" id="password" placeholder="留空则不用 sudo" autocomplete="off" />
+        </label>
+      </p>
+      <p>
+        <button class="btn btn-primary" id="btnDeploy">一键部署</button>
+        <span class="status" id="deployStatus"></span>
+      </p>
+      <div class="log" id="deployLog"></div>
+    </div>
+
+    <div class="section run-section hidden" id="runSection">
+      <h2>运行 Demo（本地摄像头 + YOLO 实时检测）</h2>
+      <p>
+        <button class="btn btn-secondary" id="btnRun">运行 Demo</button>
+        <button class="btn btn-secondary" id="btnStop" style="display:none">停止</button>
+        <span class="status" id="runStatus"></span>
+      </p>
+      <div class="video-wrap" id="videoWrap">
+        <div class="placeholder" id="videoPlaceholder">点击「运行 Demo」查看实时画面</div>
+        <img id="videoImg" alt="MJPEG 流" style="display:none" />
+      </div>
+      <div class="stream-error" id="streamError" style="display:none"></div>
+    </div>
+  </main>
+  <script>
+    const params = new URLSearchParams(location.search);
+    const demoId = params.get('id') || 'yolo11';
+    document.getElementById('demoTitle').textContent = 'Demo: ' + demoId;
+    document.getElementById('demoIdLabel').textContent = demoId;
+
+    const progressWrap = document.getElementById('progressWrap');
+    const progressText = document.getElementById('progressText');
+    const deployLog = document.getElementById('deployLog');
+    const deployStatus = document.getElementById('deployStatus');
+    const btnDeploy = document.getElementById('btnDeploy');
+    const passwordInput = document.getElementById('password');
+    const runSection = document.getElementById('runSection');
+    const btnRun = document.getElementById('btnRun');
+    const btnStop = document.getElementById('btnStop');
+    const runStatus = document.getElementById('runStatus');
+    const videoImg = document.getElementById('videoImg');
+    const videoPlaceholder = document.getElementById('videoPlaceholder');
+    const streamError = document.getElementById('streamError');
+
+    function headers() {
+      const sid = localStorage.getItem('session_id');
+      return sid ? { 'X-Session-Token': sid } : {};
+    }
+
+    function setProgress(show, text) {
+      progressWrap.style.display = show ? 'flex' : 'none';
+      if (text) progressText.textContent = text;
+    }
+
+    function setRunSectionVisible(visible) {
+      if (visible) runSection.classList.remove('hidden');
+      else runSection.classList.add('hidden');
+    }
+
+    async function checkDeployed() {
+      const r = await fetch('/api/demos/' + demoId + '/status', { headers: headers() });
+      const data = await r.json();
+      setRunSectionVisible(!!data.deployed);
+      return data.deployed;
+    }
+    checkDeployed();
+
+    btnDeploy.addEventListener('click', async function () {
+      btnDeploy.disabled = true;
+      deployStatus.textContent = '';
+      deployStatus.classList.remove('deploy-status-done', 'deploy-status-err');
+      deployLog.textContent = '';
+      setProgress(true, '正在配置环境，请稍等…');
+      let streamUrl = '';
+      try {
+        const r = await fetch('/api/demos/' + demoId + '/deploy', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...headers() },
+          body: JSON.stringify({ password: passwordInput.value })
+        });
+        if (!r.ok) {
+          const err = await r.json().catch(() => ({ detail: r.statusText }));
+          throw new Error(err.detail || r.statusText);
+        }
+        const data = await r.json();
+        streamUrl = data.stream_url;
+        if (!streamUrl.startsWith('http')) streamUrl = location.origin + streamUrl;
+      } catch (e) {
+        setProgress(false);
+        deployStatus.textContent = '启动失败: ' + e.message;
+        deployStatus.classList.add('deploy-status-err');
+        btnDeploy.disabled = false;
+        return;
+      }
+      progressText.textContent = '正在配置环境，请稍等…';
+      const evt = new EventSource(streamUrl);
+      evt.onmessage = function (e) {
+        deployLog.appendChild(document.createTextNode(e.data + '\n'));
+        deployLog.scrollTop = deployLog.scrollHeight;
+      };
+      evt.addEventListener('done', function () {
+        evt.close();
+        setProgress(false);
+        deployStatus.textContent = '部署完成';
+        deployStatus.classList.add('deploy-status-done');
+        btnDeploy.disabled = false;
+        checkDeployed();
+      });
+      evt.addEventListener('error', function () {
+        evt.close();
+        setProgress(false);
+        deployStatus.textContent = '连接结束';
+        btnDeploy.disabled = false;
+        checkDeployed();
+      });
+    });
+
+    btnRun.addEventListener('click', function () {
+      streamError.style.display = 'none';
+      streamError.textContent = '';
+      videoPlaceholder.style.display = 'none';
+      videoImg.style.display = 'block';
+      runStatus.textContent = '首次加载约需 10–30 秒，请耐心等待…';
+      runStatus.style.color = '#9ca3af';
+      videoImg.onload = function () { runStatus.textContent = ''; streamError.style.display = 'none'; };
+      videoImg.onerror = function () {
+        runStatus.textContent = '推流失败';
+        runStatus.style.color = '#ef4444';
+        fetch('/api/demos/' + demoId + '/stream-last-error')
+          .then(function (r) { return r.json(); })
+          .then(function (j) {
+            var stderr = j.stderr || '';
+            var detail = j.detail || '拉流失败或超时，请检查摄像头与模型是否正常。';
+            if (stderr) {
+              streamError.textContent = detail + '\n\n' + stderr;
+              streamError.style.display = 'block';
+            } else {
+              runStatus.textContent = detail;
+            }
+          })
+          .catch(function () { runStatus.textContent = '拉流失败或超时，请检查摄像头与模型是否正常。'; });
+      };
+      var url = '/api/demos/' + demoId + '/stream?t=' + Date.now();
+      videoImg.src = url;
+      btnRun.style.display = 'none';
+      btnStop.style.display = 'inline-block';
+    });
+    btnStop.addEventListener('click', function () {
+      videoImg.src = '';
+      videoImg.style.display = 'none';
+      videoPlaceholder.style.display = 'block';
+      btnStop.style.display = 'none';
+      btnRun.style.display = 'inline-block';
+      runStatus.textContent = '';
+      streamError.style.display = 'none';
+    });
+  </script>
+</body>
+</html>
