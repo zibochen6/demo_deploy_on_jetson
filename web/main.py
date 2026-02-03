@@ -353,6 +353,35 @@ async def api_stream_last_error(demo_id: str):
     return {"stderr": _last_stream_error.get(demo_id, ""), "detail": ""}
 
 
+@app.get("/api/demos/{demo_id}/stream-debug")
+async def api_stream_debug(demo_id: str, request: Request):
+    """调试用：返回最近错误、路径与可在 Jetson 上手动执行的命令预览。"""
+    if get_demo(demo_id) is None:
+        raise HTTPException(404, "demo not found")
+    target = _get_target(request)
+    paths = jetson_paths(target["jetson_project"], demo_id) if target else None
+    yolo_dir = paths["yolo_dir"] if paths else os.path.join(PROJECT_ROOT, "yolo11")
+    venv_python = paths["venv_python"] if paths else local_venv_path(demo_id)
+    model_path = paths["model_path"] if paths else local_model_path(demo_id)
+    stream_script = (os.path.join(yolo_dir, "stream_yolo.py") if target else str(Path(__file__).resolve().parent / "stream_yolo.py"))
+    cmd_preview = (
+        f"cd '{yolo_dir}' && "
+        f"YOLO11_PROJECT_DIR='{yolo_dir}' YOLO11_MODEL_PATH='{model_path}' PYTHONUNBUFFERED=1 "
+        f"'{venv_python}' '{stream_script}'"
+    )
+    return {
+        "last_error": _last_stream_error.get(demo_id, ""),
+        "remote": target is not None,
+        "paths": {
+            "yolo_dir": yolo_dir,
+            "venv_python": venv_python,
+            "model_path": model_path,
+            "stream_script": stream_script,
+        },
+        "command_preview": cmd_preview,
+    }
+
+
 def _stream_yolo_reader_local(proc: subprocess.Popen, frame_queue: queue.Queue) -> None:
     try:
         while proc.stdout:
@@ -391,8 +420,8 @@ def _stream_yolo_reader_ssh(channel, frame_queue: queue.Queue) -> None:
                 frame_queue.put(jpeg)
             if not channel.recv_ready():
                 break
-    except Exception:
-        pass
+    except Exception as e:
+        _stream_log().warning("stream_yolo_reader_ssh exception: %s", e)
     finally:
         frame_queue.put(None)
 
@@ -410,10 +439,14 @@ def _read_stderr(proc: subprocess.Popen) -> str:
         return ""
 
 
+def _stream_log():
+    import logging
+    return logging.getLogger("uvicorn.error")
+
+
 @app.get("/api/demos/{demo_id}/stream")
 async def api_demo_stream(demo_id: str, request: Request):
-    import logging
-    log = logging.getLogger("uvicorn.error")
+    log = _stream_log()
     if get_demo(demo_id) is None:
         raise HTTPException(404, "demo not found")
     target = _get_target(request)
@@ -436,6 +469,9 @@ async def api_demo_stream(demo_id: str, request: Request):
     local_stream_script = str(Path(__file__).resolve().parent / "stream_yolo.py")
     stream_script = paths["stream_script"] if paths else local_stream_script
 
+    mode = "remote" if target else "local"
+    log.info("stream start demo_id=%s mode=%s yolo_dir=%s venv=%s model=%s", demo_id, mode, yolo_dir, venv_python, model_path)
+
     boundary = b"frame"
     env = os.environ.copy()
     env["YOLO11_PROJECT_DIR"] = yolo_dir
@@ -446,18 +482,47 @@ async def api_demo_stream(demo_id: str, request: Request):
         client = target["client"]
         # 远程模式：先把 stream_yolo.py 上传到 Jetson 的 yolo_dir，避免依赖 Jetson 上是否有 web 目录
         remote_stream_script = os.path.join(yolo_dir, "stream_yolo.py")
+        upload_ok = False
         try:
             sftp = client.open_sftp()
             sftp.put(local_stream_script, remote_stream_script)
             sftp.close()
+            upload_ok = True
+            log.info("stream SFTP upload ok -> %s", remote_stream_script)
         except Exception as e:
-            raise HTTPException(500, f"上传 stream_yolo.py 到 Jetson 失败: {e}")
-        cmd = f"cd '{yolo_dir}' && YOLO11_PROJECT_DIR='{yolo_dir}' YOLO11_MODEL_PATH='{model_path}' PYTHONUNBUFFERED=1 '{venv_python}' '{remote_stream_script}'"
-        try:
-            channel = client.get_transport().open_session()
-            channel.exec_command(cmd)
-        except Exception as e:
-            raise HTTPException(500, f"SSH exec stream failed: {e}")
+            err_upload = f"上传 stream_yolo.py 到 Jetson 失败: {e}"
+            _last_stream_error[demo_id] = err_upload
+            log.warning("stream SFTP failed: %s, trying fallback", e)
+            # 回退：若 Jetson 上存在 web/stream_yolo.py 则直接用
+            fallback_script = paths["stream_script"]
+            try:
+                ch_test = client.get_transport().open_session()
+                ch_test.exec_command(f"test -r '{fallback_script}' && echo ok")
+                out = b""
+                while ch_test.recv_ready():
+                    out += ch_test.recv(4096)
+                ch_test.close()
+                if b"ok" in out:
+                    remote_stream_script = fallback_script
+                    upload_ok = True
+                    log.info("stream using fallback script: %s", fallback_script)
+            except Exception as e2:
+                log.warning("stream fallback check failed: %s", e2)
+            if not upload_ok:
+                full_msg = err_upload + "；请确认 Jetson 已开启 SFTP 或存在 web/stream_yolo.py。"
+                _last_stream_error[demo_id] = full_msg
+                raise HTTPException(500, full_msg)
+        if upload_ok:
+            cmd = f"cd '{yolo_dir}' && YOLO11_PROJECT_DIR='{yolo_dir}' YOLO11_MODEL_PATH='{model_path}' PYTHONUNBUFFERED=1 '{venv_python}' '{remote_stream_script}'"
+            log.info("stream exec_command (remote): %s", cmd[:200])
+            try:
+                channel = client.get_transport().open_session()
+                channel.exec_command(cmd)
+            except Exception as e:
+                err_exec = f"SSH 执行推流失败: {e}"
+                _last_stream_error[demo_id] = err_exec
+                raise HTTPException(500, err_exec)
+            log.info("stream channel opened, waiting first frame (timeout=60s)")
         _stream_channels[demo_id] = channel
         frame_queue = queue.Queue()
         thread = threading.Thread(target=_stream_yolo_reader_ssh, args=(channel, frame_queue), daemon=True)
@@ -505,6 +570,7 @@ async def api_demo_stream(demo_id: str, request: Request):
         raise HTTPException(503, err_msg)
     if first_frame is None:
         stderr_text = ""
+        exit_status = None
         if target and demo_id in _stream_channels:
             ch = _stream_channels.get(demo_id)
             if ch:
@@ -518,12 +584,17 @@ async def api_demo_stream(demo_id: str, request: Request):
                             break
                         parts.append(data.decode("utf-8", errors="replace"))
                     stderr_text = "".join(parts).strip()
-                    ch.close()
-                except Exception:
-                    pass
+                    if not ch.exit_status_ready():
+                        ch.close()
+                    else:
+                        exit_status = ch.recv_exit_status()
+                        ch.close()
+                except Exception as e:
+                    log.warning("stream reading stderr/exit_status: %s", e)
             _stream_channels.pop(demo_id, None)
         if not target and demo_id in _stream_processes:
             proc = _stream_processes[demo_id]
+            exit_status = proc.poll()
             try:
                 stderr_text = proc.stderr.read().decode("utf-8", errors="replace").strip() if proc.stderr else ""
             except Exception:
@@ -533,13 +604,19 @@ async def api_demo_stream(demo_id: str, request: Request):
                 proc.wait(timeout=5)
             except subprocess.TimeoutExpired:
                 proc.kill()
+            if exit_status is None:
+                exit_status = getattr(proc, "returncode", None)
             _stream_processes.pop(demo_id, None)
         err_msg = "stream_yolo 进程异常退出（未产出首帧）。请查看 Jetson 上摄像头与模型是否正常。"
+        if exit_status is not None:
+            err_msg = err_msg + f"\n\n进程退出码: {exit_status}"
         if stderr_text:
             err_msg = err_msg + "\n\n进程 stderr:\n" + stderr_text[:1500]
         _last_stream_error[demo_id] = err_msg
-        log.warning("stream 503: %s", err_msg[:300])
+        log.warning("stream 503 exit_status=%s stderr_len=%d: %s", exit_status, len(stderr_text), err_msg[:200])
         raise HTTPException(503, err_msg)
+
+    log.info("stream first frame ok demo_id=%s", demo_id)
 
     def generate():
         nonlocal first_frame, frame_queue, demo_id

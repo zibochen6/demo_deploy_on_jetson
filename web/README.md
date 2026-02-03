@@ -51,3 +51,6 @@ kill -9 <PID>
 - `GET /api/demos/{id}/deploy/stream`：SSE 部署日志。
 - `GET /api/demos/{id}/stream`：MJPEG 视频流（本地或 SSH）。
 - `GET /api/demos/{id}/stream-last-error`：最近一次推流错误信息。
+- `GET /api/demos/{id}/stream-debug`：调试用，返回最近错误、路径与可在 Jetson 上手动执行的命令预览（便于在 SSH 终端里复现问题）。
+
+推流相关接口在服务端会打 INFO/WARNING 日志（如 `stream start`、`SFTP upload ok`、`first frame ok`、`503 exit_status/stderr`），便于排查。
