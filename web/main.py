@@ -410,6 +410,8 @@ def _read_stderr(proc: subprocess.Popen) -> str:
 
 @app.get("/api/demos/{demo_id}/stream")
 async def api_demo_stream(demo_id: str, request: Request):
+    import logging
+    log = logging.getLogger("uvicorn.error")
     if get_demo(demo_id) is None:
         raise HTTPException(404, "demo not found")
     target = _get_target(request)
@@ -418,7 +420,10 @@ async def api_demo_stream(demo_id: str, request: Request):
     else:
         deployed = is_deployed_local(demo_id)
     if not deployed:
-        raise HTTPException(503, "demo not deployed yet")
+        msg = "demo not deployed yet"
+        _last_stream_error[demo_id] = "请先完成一键部署，再运行 Demo。"
+        log.warning("stream 503: %s", msg)
+        raise HTTPException(503, msg)
     if _stream_processes.get(demo_id) or _stream_channels.get(demo_id):
         raise HTTPException(409, "stream already in use")
 
@@ -459,11 +464,14 @@ async def api_demo_stream(demo_id: str, request: Request):
         thread = threading.Thread(target=_stream_yolo_reader_local, args=(proc, frame_queue), daemon=True)
         thread.start()
 
+    first_frame_timeout = MJPEG_FIRST_FRAME_TIMEOUT
+    if target:
+        first_frame_timeout = 60
     loop = asyncio.get_event_loop()
     try:
         first_frame = await asyncio.wait_for(
-            loop.run_in_executor(None, lambda: _wait_first_frame(frame_queue, MJPEG_FIRST_FRAME_TIMEOUT)),
-            timeout=MJPEG_FIRST_FRAME_TIMEOUT + 5,
+            loop.run_in_executor(None, lambda: _wait_first_frame(frame_queue, first_frame_timeout)),
+            timeout=first_frame_timeout + 10,
         )
     except (asyncio.TimeoutError, queue.Empty):
         if target and demo_id in _stream_channels:
@@ -480,8 +488,10 @@ async def api_demo_stream(demo_id: str, request: Request):
             except subprocess.TimeoutExpired:
                 proc.kill()
             _stream_processes.pop(demo_id, None)
-        _last_stream_error[demo_id] = "拉流超时：模型或摄像头未在限定时间内就绪。"
-        raise HTTPException(503, "拉流超时：模型或摄像头未在限定时间内就绪，请检查 Jetson 摄像头与环境。")
+        err_msg = "拉流超时：模型或摄像头未在限定时间内就绪。请确认 Jetson 上已部署、摄像头已连接且未被占用。"
+        _last_stream_error[demo_id] = err_msg
+        log.warning("stream 503: %s", err_msg)
+        raise HTTPException(503, err_msg)
     if first_frame is None:
         if target and demo_id in _stream_channels:
             _stream_channels[demo_id].close()
@@ -491,7 +501,10 @@ async def api_demo_stream(demo_id: str, request: Request):
             proc.terminate()
             proc.wait(timeout=5)
             _stream_processes.pop(demo_id, None)
-        raise HTTPException(503, "stream_yolo 进程异常退出。")
+        err_msg = "stream_yolo 进程异常退出（未产出首帧）。请查看 Jetson 上摄像头与模型是否正常。"
+        _last_stream_error[demo_id] = err_msg
+        log.warning("stream 503: %s", err_msg)
+        raise HTTPException(503, err_msg)
 
     def generate():
         nonlocal first_frame, frame_queue, demo_id
