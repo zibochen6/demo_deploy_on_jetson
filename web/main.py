@@ -65,6 +65,11 @@ class DeployBody(BaseModel):
     password: str = ""
 
 
+class StreamUploadPasswordBody(BaseModel):
+    """Jetson 写权限密码（SFTP 无写权限时用于 sudo 写入 stream_yolo.py）。"""
+    password: str | None = None
+
+
 def _get_target(request: Request = None):
     """从 Header X-Session-Token 或全局 current_target 获取目标。请求未传时用全局。"""
     if request:
@@ -118,6 +123,16 @@ async def api_connect_status(request: Request):
     if target:
         return {"connected": True, "host": target.get("host", "")}
     return {"connected": False}
+
+
+@app.post("/api/connect/stream-upload-password")
+async def api_stream_upload_password(request: Request, body: StreamUploadPasswordBody):
+    """保存 Jetson 写权限密码（SFTP 无写权限时用于 sudo 写入 stream_yolo.py）。仅远程模式生效。"""
+    target = _get_target(request)
+    if not target:
+        raise HTTPException(400, "请先连接 Jetson")
+    target["stream_upload_password"] = (body.password or "").strip() or None
+    return {"ok": True, "message": "已保存" if target.get("stream_upload_password") else "已清除"}
 
 
 # ---------- 静态页 ----------
@@ -444,6 +459,34 @@ def _stream_log():
     return logging.getLogger("uvicorn.error")
 
 
+def _upload_stream_script_via_sudo(client, remote_path: str, local_path: str, password: str) -> bool:
+    """通过 SSH 执行 sudo tee 将本地文件写入 Jetson（stdin 传内容）。成功返回 True。"""
+    try:
+        with open(local_path, "rb") as f:
+            content = f.read()
+    except Exception:
+        return False
+    # 路径中单引号需转义：' -> '\''
+    escaped = remote_path.replace("'", "'\"'\"'")
+    ch = client.get_transport().open_session()
+    ch.exec_command(f"sudo -S tee '{escaped}' > /dev/null")
+    ch.send((password + "\n").encode("utf-8"))
+    ch.send(content)
+    ch.shutdown_write()
+    while not ch.exit_status_ready():
+        if ch.recv_ready():
+            ch.recv(65536)
+        if ch.recv_stderr_ready():
+            ch.recv_stderr(65536)
+    while ch.recv_ready():
+        ch.recv(65536)
+    while ch.recv_stderr_ready():
+        ch.recv_stderr(65536)
+    status = ch.recv_exit_status()
+    ch.close()
+    return status == 0
+
+
 @app.get("/api/demos/{demo_id}/stream")
 async def api_demo_stream(demo_id: str, request: Request):
     log = _stream_log()
@@ -508,8 +551,19 @@ async def api_demo_stream(demo_id: str, request: Request):
                     log.info("stream using fallback script: %s", fallback_script)
             except Exception as e2:
                 log.warning("stream fallback check failed: %s", e2)
+            # 若为权限错误且已配置写权限密码，尝试通过 sudo tee 写入
+            if not upload_ok and ("Permission denied" in str(e) or "Errno 13" in str(e)) and target.get("stream_upload_password"):
+                try:
+                    if _upload_stream_script_via_sudo(client, remote_stream_script, local_stream_script, target["stream_upload_password"]):
+                        upload_ok = True
+                        log.info("stream upload ok via sudo tee -> %s", remote_stream_script)
+                    else:
+                        _last_stream_error[demo_id] = err_upload + "；sudo 写入失败（请检查密码或 sudo 权限）。"
+                except Exception as e3:
+                    log.warning("stream sudo-tee upload failed: %s", e3)
+                    _last_stream_error[demo_id] = err_upload + f"；sudo 写入异常: {e3}"
             if not upload_ok:
-                full_msg = err_upload + "；请确认 Jetson 已开启 SFTP 或存在 web/stream_yolo.py。"
+                full_msg = err_upload + "；请确认 Jetson 已开启 SFTP、存在 web/stream_yolo.py，或填写「Jetson 写权限密码」后重试。"
                 _last_stream_error[demo_id] = full_msg
                 raise HTTPException(500, full_msg)
         if upload_ok:

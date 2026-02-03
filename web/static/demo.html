@@ -69,6 +69,13 @@
 
     <div class="section run-section hidden" id="runSection">
       <h2>运行 Demo（本地摄像头 + YOLO 实时检测）</h2>
+      <p id="streamUploadPasswordWrap" style="display:none;">
+        <label>Jetson 写权限密码（可选，SFTP 无写权限时用于 sudo 写入 stream_yolo.py）：<br>
+          <input type="password" class="password-input" id="streamUploadPassword" placeholder="留空则不用 sudo" autocomplete="off" style="width:220px;" />
+        </label>
+        <button type="button" class="btn btn-secondary" id="btnSaveStreamPassword">保存</button>
+        <span class="status" id="streamPasswordStatus"></span>
+      </p>
       <p>
         <button class="btn btn-secondary" id="btnRun">运行 Demo</button>
         <button class="btn btn-secondary" id="btnStop" style="display:none">停止</button>
@@ -94,6 +101,10 @@
     const btnDeploy = document.getElementById('btnDeploy');
     const passwordInput = document.getElementById('password');
     const runSection = document.getElementById('runSection');
+    const streamUploadPasswordWrap = document.getElementById('streamUploadPasswordWrap');
+    const streamUploadPasswordInput = document.getElementById('streamUploadPassword');
+    const btnSaveStreamPassword = document.getElementById('btnSaveStreamPassword');
+    const streamPasswordStatus = document.getElementById('streamPasswordStatus');
     const btnRun = document.getElementById('btnRun');
     const btnStop = document.getElementById('btnStop');
     const runStatus = document.getElementById('runStatus');
@@ -120,9 +131,29 @@
       const r = await fetch('/api/demos/' + demoId + '/status', { headers: headers() });
       const data = await r.json();
       setRunSectionVisible(!!data.deployed);
+      const conn = await fetch('/api/connect/status', { headers: headers() }).then(function (x) { return x.json(); });
+      streamUploadPasswordWrap.style.display = conn.connected ? 'block' : 'none';
       return data.deployed;
     }
     checkDeployed();
+
+    btnSaveStreamPassword.addEventListener('click', function () {
+      streamPasswordStatus.textContent = '';
+      fetch('/api/connect/stream-upload-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...headers() },
+        body: JSON.stringify({ password: streamUploadPasswordInput.value || null })
+      })
+        .then(function (r) { return r.json(); })
+        .then(function (j) {
+          streamPasswordStatus.textContent = j.message || '已保存';
+          streamPasswordStatus.style.color = '#00c853';
+        })
+        .catch(function (e) {
+          streamPasswordStatus.textContent = '保存失败: ' + (e.message || e);
+          streamPasswordStatus.style.color = '#ef4444';
+        });
+    });
 
     btnDeploy.addEventListener('click', async function () {
       btnDeploy.disabled = true;
