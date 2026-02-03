@@ -196,12 +196,14 @@
         fetch('/api/demos/' + demoId + '/stream-last-error')
           .then(function (r) { return r.json(); })
           .then(function (j) {
-            var stderr = j.stderr || '';
-            var detail = j.detail || '拉流失败或超时，请检查摄像头与模型是否正常。';
+            var stderr = (j.stderr || '').trim();
+            var detail = (j.detail || '拉流失败或超时，请检查摄像头与模型是否正常。').trim();
             if (stderr) {
-              streamError.textContent = detail + '\n\n' + stderr;
+              streamError.textContent = stderr;
               streamError.style.display = 'block';
             } else {
+              streamError.textContent = detail;
+              streamError.style.display = 'block';
               runStatus.textContent = detail;
             }
           })

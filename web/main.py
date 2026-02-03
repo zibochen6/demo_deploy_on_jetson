@@ -433,7 +433,8 @@ async def api_demo_stream(demo_id: str, request: Request):
     venv_python = paths["venv_python"] if paths else local_venv_path(demo_id)
     model_path = paths["model_path"] if paths else local_model_path(demo_id)
     yolo_dir = paths["yolo_dir"] if paths else os.path.join(PROJECT_ROOT, "yolo11")
-    stream_script = paths["stream_script"] if paths else str(Path(__file__).resolve().parent / "stream_yolo.py")
+    local_stream_script = str(Path(__file__).resolve().parent / "stream_yolo.py")
+    stream_script = paths["stream_script"] if paths else local_stream_script
 
     boundary = b"frame"
     env = os.environ.copy()
@@ -443,7 +444,15 @@ async def api_demo_stream(demo_id: str, request: Request):
 
     if target:
         client = target["client"]
-        cmd = f"cd '{yolo_dir}' && YOLO11_PROJECT_DIR='{yolo_dir}' YOLO11_MODEL_PATH='{model_path}' PYTHONUNBUFFERED=1 '{venv_python}' '{stream_script}'"
+        # 远程模式：先把 stream_yolo.py 上传到 Jetson 的 yolo_dir，避免依赖 Jetson 上是否有 web 目录
+        remote_stream_script = os.path.join(yolo_dir, "stream_yolo.py")
+        try:
+            sftp = client.open_sftp()
+            sftp.put(local_stream_script, remote_stream_script)
+            sftp.close()
+        except Exception as e:
+            raise HTTPException(500, f"上传 stream_yolo.py 到 Jetson 失败: {e}")
+        cmd = f"cd '{yolo_dir}' && YOLO11_PROJECT_DIR='{yolo_dir}' YOLO11_MODEL_PATH='{model_path}' PYTHONUNBUFFERED=1 '{venv_python}' '{remote_stream_script}'"
         try:
             channel = client.get_transport().open_session()
             channel.exec_command(cmd)
@@ -500,8 +509,15 @@ async def api_demo_stream(demo_id: str, request: Request):
             ch = _stream_channels.get(demo_id)
             if ch:
                 try:
-                    if ch.recv_stderr_ready():
-                        stderr_text = ch.recv_stderr(8192).decode("utf-8", errors="replace").strip()
+                    parts = []
+                    for _ in range(100):
+                        if not ch.recv_stderr_ready():
+                            break
+                        data = ch.recv_stderr(8192)
+                        if not data:
+                            break
+                        parts.append(data.decode("utf-8", errors="replace"))
+                    stderr_text = "".join(parts).strip()
                     ch.close()
                 except Exception:
                     pass
