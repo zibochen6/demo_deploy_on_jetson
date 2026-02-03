@@ -32,9 +32,8 @@
     .card h3 { margin: 0 0 0.5rem; font-size: 1.1rem; font-weight: 600; }
     .card p { margin: 0 0 1rem; font-size: 0.9rem; color: #4b5563; line-height: 1.5; }
     .card-badge { font-size: 0.8rem; color: #00c853; font-weight: 500; }
-    .card a.btn-primary { display: inline-block; padding: 0.5rem 1rem; background: #00c853; color: #fff; text-decoration: none; border-radius: 8px; font-size: 0.9rem; font-weight: 500; }
+    .card a.btn-primary { display: inline-block; padding: 0.5rem 1rem; background: #00c853; color: #fff; text-decoration: none; border-radius: 8px; font-size: 0.9rem; font-weight: 500; cursor: pointer; }
     .card a.btn-primary:hover { background: #00a843; }
-    .card a.btn-primary.disabled { background: #9ca3af; pointer-events: none; }
   </style>
 </head>
 <body>
@@ -139,6 +138,7 @@
         const d = await r.json();
         setConnected(true, d.host);
         if (d.session_id) localStorage.setItem('session_id', d.session_id);
+        loadDemos();
       } catch (e) {
         connectStatus.textContent = '连接失败: ' + e.message;
         connectStatus.className = 'status disconnected';
@@ -151,6 +151,14 @@
       const res = await fetch('/api/demos');
       const { demos } = await res.json();
       cards.innerHTML = '';
+      if (!connected) {
+        const tip = document.createElement('p');
+        tip.style.color = '#9ca3af';
+        tip.style.fontSize = '0.85rem';
+        tip.style.marginBottom = '0.75rem';
+        tip.textContent = '未连接 Jetson 时，将使用本机（本地模式）；连接后将在 Jetson 上部署与推流。';
+        cards.appendChild(tip);
+      }
       for (const d of demos) {
         const statusRes = await fetch('/api/demos/' + encodeURIComponent(d.id) + '/status').catch(() => null);
         let deployed = false;
@@ -160,20 +168,12 @@
         }
         const el = document.createElement('div');
         el.className = 'card';
-        const linkClass = connected ? 'btn-primary' : 'btn-primary disabled';
         el.innerHTML =
           '<h3>' + escapeHtml(d.name) + '</h3>' +
           '<p>' + escapeHtml(d.description) + '</p>' +
           (deployed ? '<span class="card-badge">已部署</span> ' : '') +
-          '<a href="/demo?id=' + encodeURIComponent(d.id) + '" class="' + linkClass + '">进入 / 一键部署</a>';
+          '<a href="/demo?id=' + encodeURIComponent(d.id) + '" class="btn-primary">进入 / 一键部署</a>';
         cards.appendChild(el);
-      }
-      if (!connected) {
-        const tip = document.createElement('p');
-        tip.style.color = '#9ca3af';
-        tip.style.fontSize = '0.85rem';
-        tip.textContent = '未连接 Jetson 时，将使用本机（本地模式）；连接后将在 Jetson 上部署与推流。';
-        cards.insertBefore(tip, cards.firstChild);
       }
     }
     function escapeHtml(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
