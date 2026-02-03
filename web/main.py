@@ -580,24 +580,9 @@ async def api_demo_stream(demo_id: str, request: Request):
         except Exception as e:
             err_upload = f"上传 stream_yolo.py 到 Jetson 失败: {e}"
             _last_stream_error[demo_id] = err_upload
-            log.warning("stream SFTP failed: %s, trying fallback", e)
-            # 回退：若 Jetson 上存在 web/stream_yolo.py 则直接用
-            fallback_script = paths["stream_script"]
-            try:
-                ch_test = client.get_transport().open_session()
-                ch_test.exec_command(f"test -r '{fallback_script}' && echo ok")
-                out = b""
-                while ch_test.recv_ready():
-                    out += ch_test.recv(4096)
-                ch_test.close()
-                if b"ok" in out:
-                    remote_stream_script = fallback_script
-                    upload_ok = True
-                    log.info("stream using fallback script: %s", fallback_script)
-            except Exception as e2:
-                log.warning("stream fallback check failed: %s", e2)
-            # 若为权限错误且已配置写权限密码，尝试通过 sudo tee 写入
-            if not upload_ok and ("Permission denied" in str(e) or "Errno 13" in str(e)) and target.get("stream_upload_password"):
+            log.warning("stream SFTP failed: %s", e)
+            # 若为权限错误且已配置写权限密码，优先用 sudo tee + chown 上传最新脚本（保证用 PC 端最新代码）
+            if ("Permission denied" in str(e) or "Errno 13" in str(e)) and target.get("stream_upload_password"):
                 try:
                     if _upload_stream_script_via_sudo(client, remote_stream_script, local_stream_script, target["stream_upload_password"]):
                         upload_ok = True
@@ -612,6 +597,22 @@ async def api_demo_stream(demo_id: str, request: Request):
                 except Exception as e3:
                     log.warning("stream sudo-tee upload failed: %s", e3)
                     _last_stream_error[demo_id] = err_upload + f"；sudo 写入异常: {e3}"
+            # 若仍未成功，再回退到 Jetson 上已有的 web/stream_yolo.py
+            if not upload_ok:
+                fallback_script = paths["stream_script"]
+                try:
+                    ch_test = client.get_transport().open_session()
+                    ch_test.exec_command(f"test -r '{fallback_script}' && echo ok")
+                    out = b""
+                    while ch_test.recv_ready():
+                        out += ch_test.recv(4096)
+                    ch_test.close()
+                    if b"ok" in out:
+                        remote_stream_script = fallback_script
+                        upload_ok = True
+                        log.info("stream using fallback script: %s", fallback_script)
+                except Exception as e2:
+                    log.warning("stream fallback check failed: %s", e2)
             if not upload_ok:
                 full_msg = err_upload + "；请确认 Jetson 已开启 SFTP、存在 web/stream_yolo.py，或填写「Jetson 写权限密码」后重试。"
                 _last_stream_error[demo_id] = full_msg
