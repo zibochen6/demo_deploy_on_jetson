@@ -269,10 +269,11 @@ async def api_start_deploy(demo_id: str, request: Request, body: DeployBody | No
     return {"stream_url": f"/api/demos/{demo_id}/deploy/stream"}
 
 
-@app.get("/api/demos/{demo_id}/deploy/stream")
-async def api_deploy_stream(demo_id: str):
+async def _deploy_stream_events(demo_id: str):
+    """SSE 事件流：部署日志，结束时发送 event: done。"""
     state = _deploy_state.get(demo_id)
     if not state:
+        _deploy_state.pop(demo_id, None)
         yield "event: error\ndata: no deploy in progress\n\n"
         return
     log_queue = state["log_queue"]
@@ -304,6 +305,40 @@ async def api_deploy_stream(demo_id: str):
         yield f"event: done\ndata: {{\"exit_code\": {exit_code}}}\n\n"
     finally:
         _deploy_state.pop(demo_id, None)
+
+
+@app.get("/api/demos/{demo_id}/deploy/stream")
+async def api_deploy_stream(demo_id: str):
+    return StreamingResponse(
+        _deploy_stream_events(demo_id),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+@app.post("/api/demos/{demo_id}/deploy/cancel")
+async def api_deploy_cancel(demo_id: str):
+    """清除卡住的部署状态，便于在 409 后重试。"""
+    state = _deploy_state.pop(demo_id, None)
+    if not state:
+        return {"ok": True, "message": "no deploy in progress"}
+    channel = state.get("channel")
+    process = state.get("process")
+    if channel:
+        try:
+            channel.close()
+        except Exception:
+            pass
+    if process is not None:
+        try:
+            process.terminate()
+            process.wait(timeout=5)
+        except Exception:
+            try:
+                process.kill()
+            except Exception:
+                pass
+    return {"ok": True, "message": "deploy cancelled"}
 
 
 # ---------- 推流（本地 or SSH）----------

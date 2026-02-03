@@ -137,6 +137,14 @@
           headers: { 'Content-Type': 'application/json', ...headers() },
           body: JSON.stringify({ password: passwordInput.value })
         });
+        if (r.status === 409) {
+          await fetch('/api/demos/' + demoId + '/deploy/cancel', { method: 'POST', headers: headers() });
+          setProgress(false);
+          deployStatus.textContent = '已清除上次状态，请再次点击一键部署';
+          deployStatus.classList.add('deploy-status-err');
+          btnDeploy.disabled = false;
+          return;
+        }
         if (!r.ok) {
           const err = await r.json().catch(() => ({ detail: r.statusText }));
           throw new Error(err.detail || r.statusText);
