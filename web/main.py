@@ -5,8 +5,10 @@ FastAPI：支持双模式（本地 / 远程 Jetson）。
 import asyncio
 import os
 import queue
+import signal
 import struct
 import subprocess
+import sys
 import threading
 import uuid
 from pathlib import Path
@@ -493,17 +495,34 @@ async def api_demo_stream(demo_id: str, request: Request):
         log.warning("stream 503: %s", err_msg)
         raise HTTPException(503, err_msg)
     if first_frame is None:
+        stderr_text = ""
         if target and demo_id in _stream_channels:
-            _stream_channels[demo_id].close()
+            ch = _stream_channels.get(demo_id)
+            if ch:
+                try:
+                    if ch.recv_stderr_ready():
+                        stderr_text = ch.recv_stderr(8192).decode("utf-8", errors="replace").strip()
+                    ch.close()
+                except Exception:
+                    pass
             _stream_channels.pop(demo_id, None)
         if not target and demo_id in _stream_processes:
             proc = _stream_processes[demo_id]
+            try:
+                stderr_text = proc.stderr.read().decode("utf-8", errors="replace").strip() if proc.stderr else ""
+            except Exception:
+                pass
             proc.terminate()
-            proc.wait(timeout=5)
+            try:
+                proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                proc.kill()
             _stream_processes.pop(demo_id, None)
         err_msg = "stream_yolo 进程异常退出（未产出首帧）。请查看 Jetson 上摄像头与模型是否正常。"
+        if stderr_text:
+            err_msg = err_msg + "\n\n进程 stderr:\n" + stderr_text[:1500]
         _last_stream_error[demo_id] = err_msg
-        log.warning("stream 503: %s", err_msg)
+        log.warning("stream 503: %s", err_msg[:300])
         raise HTTPException(503, err_msg)
 
     def generate():
@@ -538,6 +557,54 @@ async def api_demo_stream(demo_id: str, request: Request):
     )
 
 
+def _shutdown_and_exit(*_args):
+    """Ctrl+C / kill 时关闭 SSH、结束子进程并退出，便于释放端口。"""
+    global _current_target, _deploy_state, _stream_processes, _stream_channels
+    if _current_target and _current_target.get("client"):
+        try:
+            _current_target["client"].close()
+        except Exception:
+            pass
+        _current_target = None
+    for demo_id, state in list(_deploy_state.items()):
+        ch = state.get("channel")
+        proc = state.get("process")
+        if ch:
+            try:
+                ch.close()
+            except Exception:
+                pass
+        if proc is not None:
+            try:
+                proc.terminate()
+                proc.wait(timeout=2)
+            except Exception:
+                try:
+                    proc.kill()
+                except Exception:
+                    pass
+    _deploy_state.clear()
+    for demo_id, proc in list(_stream_processes.items()):
+        try:
+            proc.terminate()
+            proc.wait(timeout=2)
+        except Exception:
+            try:
+                proc.kill()
+            except Exception:
+                pass
+    _stream_processes.clear()
+    for demo_id, ch in list(_stream_channels.items()):
+        try:
+            ch.close()
+        except Exception:
+            pass
+    _stream_channels.clear()
+    sys.exit(0)
+
+
 if __name__ == "__main__":
+    signal.signal(signal.SIGINT, _shutdown_and_exit)
+    signal.signal(signal.SIGTERM, _shutdown_and_exit)
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)

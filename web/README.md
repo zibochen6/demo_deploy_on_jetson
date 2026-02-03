@@ -14,6 +14,20 @@ python main.py
 
 浏览器访问：`http://<PC_IP>:8000`
 
+## 停止服务与端口释放
+
+使用 `python main.py` 启动时，按 **Ctrl+C** 会触发清理（关闭 SSH、结束部署/推流子进程）并退出，端口会随之释放。若重启时仍提示端口被占用，可等待约 60 秒（TCP TIME_WAIT）或先查占用的进程再结束：
+
+```bash
+# 查看占用 8000 端口的进程
+lsof -i :8000
+# 或
+ss -tlnp | grep 8000
+
+# 结束该进程（将 PID 换成实际进程号）
+kill -9 <PID>
+```
+
 ## 双模式
 
 - **未连接 Jetson**：部署与推流在**本机**执行（需本机有 `setup_yolo11.sh`、`yolo11/.venv` 等，即本机为 Jetson 时使用）。
