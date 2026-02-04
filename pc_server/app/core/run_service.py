@@ -164,7 +164,8 @@ def run_demo(manager: SessionManager, run: RunSession, session: Session, demo: d
 def _wait_health(local_port: int) -> bool:
     url = f"http://127.0.0.1:{local_port}/health"
     deadline = time.time() + RUN_HEALTH_TIMEOUT
-    with httpx.Client(timeout=2.0) as client:
+    # 本地健康检查不走系统代理，避免 socks 等 scheme 导致 httpx 报错
+    with httpx.Client(timeout=2.0, trust_env=False) as client:
         while time.time() < deadline:
             try:
                 r = client.get(url)
@@ -193,6 +194,9 @@ def stop_run(manager: SessionManager, run: RunSession, session: Session) -> None
             run.tunnel.stop()
         except Exception:
             pass
+        run.tunnel = None
     _stop_remote(session.ssh, run.remote_pid)
+    run.remote_pid = None
+    run.local_port = None
     manager.set_run_status(run, "STOPPED")
     manager.remove_run_session(run.run_id)

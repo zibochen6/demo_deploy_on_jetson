@@ -174,8 +174,8 @@ async def deploy_cancel(session_id: str, demo_id: str, request: Request):
 
 
 @app.websocket("/ws/jobs/{job_id}")
-async def ws_jobs(websocket: WebSocket, job_id: str, request: Request):
-    manager = get_manager(request)
+async def ws_jobs(websocket: WebSocket, job_id: str):
+    manager = websocket.app.state.manager
     job = manager.get_deploy_job(job_id)
     if job is None:
         await websocket.close(code=1008)
@@ -222,8 +222,8 @@ async def run(session_id: str, demo_id: str, request: Request):
 
 
 @app.websocket("/ws/runs/{run_id}")
-async def ws_runs(websocket: WebSocket, run_id: str, request: Request):
-    manager = get_manager(request)
+async def ws_runs(websocket: WebSocket, run_id: str):
+    manager = websocket.app.state.manager
     run = manager.get_run_session(run_id)
     if run is None:
         await websocket.close(code=1008)
@@ -252,7 +252,7 @@ async def video_proxy(session_id: str, run_id: str, request: Request):
     url = f"http://127.0.0.1:{run.local_port}/video"
 
     async def stream():
-        async with httpx.AsyncClient(timeout=None) as client:
+        async with httpx.AsyncClient(timeout=None, trust_env=False) as client:
             async with client.stream("GET", url) as resp:
                 async for chunk in resp.aiter_bytes():
                     yield chunk

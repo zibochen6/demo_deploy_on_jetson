@@ -180,6 +180,7 @@ class SessionManager:
             sessions = list(self.sessions.values())
             deploys = list(self.deploy_jobs.values())
             runs = list(self.run_sessions.values())
+        sessions_by_id = {session.session_id: session for session in sessions}
         for job in deploys:
             job.cancel_event.set()
             if job.channel is not None:
@@ -192,19 +193,30 @@ class SessionManager:
         except Exception:
             stop_run = None
         for run in runs:
-            if stop_run is not None:
-                session = self.sessions.get(run.session_id)
-                if session is not None:
-                    try:
-                        stop_run(self, run, session)
-                        continue
-                    except Exception:
-                        pass
+            session = sessions_by_id.get(run.session_id)
+            if stop_run is not None and session is not None:
+                try:
+                    stop_run(self, run, session)
+                    continue
+                except Exception:
+                    pass
             if run.tunnel is not None:
                 try:
                     run.tunnel.stop()
                 except Exception:
                     pass
+                run.tunnel = None
+            run.local_port = None
+            if session is not None:
+                try:
+                    from .run_service import _stop_remote
+                except Exception:
+                    _stop_remote = None
+                if _stop_remote is not None:
+                    try:
+                        _stop_remote(session.ssh, run.remote_pid)
+                    except Exception:
+                        pass
         for session in sessions:
             try:
                 session.ssh.close()
