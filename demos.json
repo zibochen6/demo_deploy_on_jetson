@@ -80,6 +80,30 @@
         "installed_at": null,
         "version": "humble-22.04"
       }
+    },
+    {
+      "id": "live_vlm_webui",
+      "name": "Live VLM WebUI",
+      "description": "Deploy Live VLM WebUI with Ollama on Jetson for real-time vision-language interaction.",
+      "tags": ["Jetson", "VLM", "WebUI"],
+      "media": [],
+      "deploy": {
+        "local_script_path": "demo_scripts/setup_live_vlm_webui.sh",
+        "remote_dir": "/tmp/oneclick_demos/live_vlm_webui",
+        "remote_script_name": "setup_live_vlm_webui.sh",
+        "run_as_sudo": true,
+        "marker_path": ".installed_live_vlm_webui.ok",
+        "precheck_cmd": "command -v ollama >/dev/null 2>&1 && (test -x $HOME/.local/bin/live-vlm-webui || test -x /usr/local/bin/live-vlm-webui)",
+        "version": "live-vlm-webui-ollama"
+      },
+      "run": {
+        "enabled": false
+      },
+      "status": {
+        "installed": false,
+        "installed_at": null,
+        "version": "live-vlm-webui-ollama"
+      }
     }
   ]
 }
