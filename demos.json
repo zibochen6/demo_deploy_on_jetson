@@ -1,17 +1,35 @@
-{
+﻿{
   "demos": [
     {
       "id": "yolo_demo",
       "name": "YOLO Realtime Detection",
       "description": "Deploy YOLO on Jetson and stream real-time camera detection to the PC browser.",
       "tags": ["Jetson", "Camera", "YOLO"],
+      "media": [
+        {
+          "type": "image",
+          "src": "/static/demos/yolo_demo/preview.gif",
+          "alt": "YOLO realtime detection preview"
+        },
+        {
+          "type": "image",
+          "src": "/static/demos/yolo_demo/preview.gif",
+          "alt": "YOLO realtime detection thumbnail"
+        }
+      ],
       "deploy": {
-        "local_script_path": "demo_scripts/setup_yolo11.sh",
+        "script_repo": "https://github.com/zibochen6/easy_develope_script",
+        "script_ref": "main",
+        "script_path": "setup_yolo11.sh",
         "remote_dir": "/tmp/oneclick_demos/yolo_demo",
         "remote_script_name": "setup_yolo11.sh",
-        "run_as_sudo": true
+        "run_as_sudo": true,
+        "marker_path": ".installed_yolo11.ok",
+        "precheck_cmd": "test -f {remote_dir}/yolo11/.venv/bin/python && test -f {remote_dir}/yolo11/yolo11n.pt",
+        "version": "yolo11n-jp6.2"
       },
       "run": {
+        "enabled": true,
         "remote_py_script_path": "jetson_payload/yolo_stream_server.py",
         "remote_port": 8090,
         "default_camera": "usb",
@@ -19,6 +37,48 @@
         "csi_params": {"width": 1280, "height": 720, "flip": 0},
         "model_hint": "yolo11n.pt",
         "venv_rel_path": "yolo11/.venv/bin/python"
+      },
+      "status": {
+        "installed": false,
+        "installed_at": null,
+        "version": "yolo11n-jp6.2"
+      }
+    },
+    {
+      "id": "ros2_setup",
+      "name": "ROS 2 Humble Environment",
+      "description": "One-click install ROS 2 Humble on Jetson (Ubuntu 22.04) with common tools and environment setup.",
+      "tags": ["ROS2", "Jetson", "Ubuntu 22.04"],
+      "media": [
+        {
+          "type": "image",
+          "src": "/static/demos/ros2_setup/ros2.png",
+          "alt": "ROS 2 Humble environment preview"
+        },
+        {
+          "type": "image",
+          "src": "/static/demos/ros2_setup/ros2.png",
+          "alt": "ROS 2 Humble environment thumbnail"
+        }
+      ],
+      "deploy": {
+        "script_repo": "https://github.com/zibochen6/easy_develope_script",
+        "script_ref": "main",
+        "script_path": "setup_ros2.sh",
+        "remote_dir": "/tmp/oneclick_demos/ros2_setup",
+        "remote_script_name": "setup_ros2.sh",
+        "run_as_sudo": true,
+        "marker_path": ".installed_ros2_humble.ok",
+        "precheck_cmd": "test -d /opt/ros/humble",
+        "version": "humble-22.04"
+      },
+      "run": {
+        "enabled": false
+      },
+      "status": {
+        "installed": false,
+        "installed_at": null,
+        "version": "humble-22.04"
       }
     }
   ]

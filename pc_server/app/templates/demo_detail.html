@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8" />
@@ -6,22 +6,26 @@
   <title>{{ demo.name }} - Jetson Demo</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Manrope:wght@400;500;600&family=Space+Grotesk:wght@600;700&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&family=Sora:wght@600;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/static/styles.css" />
   <script src="https://cdn.tailwindcss.com"></script>
 </head>
-<body class="bg-carbon text-slate-100" data-demo-id="{{ demo.id }}">
+{% set run_enabled = demo.run.get('enabled', True) %}
+<body data-demo-id="{{ demo.id }}"
+      data-run-enabled="{{ 'true' if run_enabled else 'false' }}"
+      data-preview-src="{{ demo.media[0].src if demo.media }}"
+      data-remote-dir="{{ demo.deploy.remote_dir }}">
   <div class="noise-overlay"></div>
   <header class="topbar">
     <a class="brand" href="/">seeed studio</a>
     <nav class="pill-nav">
       <span class="pill pill-active">Demo</span>
       <span class="pill">Jetson</span>
-      <span class="pill">YOLO</span>
+      <span class="pill">Console</span>
     </nav>
   </header>
 
-  <main class="page">
+  <main class="page detail-page">
     <section class="hero hero-compact">
       <div>
         <p class="hero-kicker">{{ demo.tags | join(' / ') }}</p>
@@ -30,101 +34,192 @@
       </div>
     </section>
 
-    <section class="section">
-      <h2 class="panel-title">A. 连接 Jetson</h2>
-      <div class="panel-grid">
-        <div class="panel">
+    <section class="dashboard-grid">
+      <div class="dashboard-main">
+        <article class="panel" id="panel-connect">
+          <div class="panel-header">
+            <div>
+              <h2 class="panel-title">连接 Jetson</h2>
+              <p class="panel-subtitle">需要 Jetson SSH 信息；密码不会落盘，仅用于当前会话。</p>
+            </div>
+            <span class="badge" id="connect-badge">Not connected</span>
+          </div>
           <div class="form-grid">
-            <label>
-              <span>Jetson IP</span>
+            <div class="field">
+              <label for="host">Jetson IP</label>
               <input type="text" id="host" placeholder="192.168.1.10" />
-            </label>
-            <label>
-              <span>SSH 端口</span>
+              <div class="field-helper">示例：192.168.1.10 / jetson.local</div>
+              <div class="field-error" id="err-host"></div>
+            </div>
+            <div class="field">
+              <label for="port">SSH 端口</label>
               <input type="number" id="port" value="22" />
-            </label>
-            <label>
-              <span>用户名</span>
+              <div class="field-helper">默认 22</div>
+              <div class="field-error" id="err-port"></div>
+            </div>
+            <div class="field">
+              <label for="username">用户名</label>
               <input type="text" id="username" value="seeed" />
-            </label>
-            <label>
-              <span>密码</span>
+              <div class="field-helper">需要 sudo 权限</div>
+              <div class="field-error" id="err-username"></div>
+            </div>
+            <div class="field">
+              <label for="password">SSH 密码</label>
               <input type="password" id="password" placeholder="SSH 密码" autocomplete="off" />
-            </label>
-            <label>
-              <span>sudo 密码（可选）</span>
-              <input type="password" id="sudoPassword" placeholder="若与 SSH 不同可填写" autocomplete="off" />
-            </label>
+              <div class="field-helper">如使用密钥，可留空</div>
+              <div class="field-error" id="err-password"></div>
+            </div>
+            <div class="field">
+              <label for="sudoPassword">sudo 密码（可选）</label>
+              <input type="password" id="sudoPassword" placeholder="如与 SSH 不同可填写" autocomplete="off" />
+              <div class="field-helper">用于 sudo 操作</div>
+              <div class="field-error" id="err-sudoPassword"></div>
+            </div>
           </div>
           <div class="form-actions">
-            <button class="cta-btn" id="btn-connect">连接</button>
-            <span class="status" id="connect-status">未连接</span>
-            <button class="ghost-btn" id="btn-sudo" disabled>保存 sudo 密码</button>
-            <span class="status" id="sudo-status"></span>
+            <button class="btn btn-primary" id="btn-connect">连接</button>
+            <span class="status-line" id="connect-status">未连接</span>
+            <button class="btn btn-ghost" id="btn-sudo" disabled>保存 sudo 密码</button>
+            <span class="status-line" id="sudo-status"></span>
           </div>
-        </div>
-        <div class="panel">
-          <h3>连接要求</h3>
-          <ul class="panel-list">
+        </article>
+
+        <article class="panel" id="panel-deploy">
+          <div class="panel-header">
+            <div>
+              <h2 class="panel-title">一键部署</h2>
+              <p class="panel-subtitle">上传脚本并在 Jetson 上执行，日志实时回传。</p>
+            </div>
+            <span class="badge" id="deploy-badge">Idle</span>
+          </div>
+          <div class="form-grid">
+            <div class="field">
+              <label for="remoteDir">Remote Dir</label>
+              <input type="text" id="remoteDir" placeholder="/tmp/oneclick_demos/demo" value="{{ demo.deploy.remote_dir }}" />
+              <div class="field-helper">部署脚本与产物将存放于此目录</div>
+              <div class="field-error" id="err-remoteDir"></div>
+            </div>
+          </div>
+          <div class="form-actions">
+            <button class="btn btn-primary" id="btn-deploy" disabled>一键部署</button>
+            <button class="btn btn-ghost" id="btn-cancel" disabled>取消部署</button>
+            <span class="status-line" id="deploy-status">等待连接</span>
+            <span class="status-line" id="precheck-status"></span>
+          </div>
+          <div class="card-block precheck-banner" id="deploy-precheck" hidden>
+            <div>
+              <div class="status-line ok" id="precheck-text">检测到已配置</div>
+            </div>
+            <div class="precheck-actions">
+              <button class="btn btn-outline" id="btn-skip">跳过部署，直接运行</button>
+              <button class="btn btn-danger" id="btn-force">强制重装</button>
+            </div>
+          </div>
+          <div class="log-shell" id="deploy-log-shell">
+            <div class="log-toolbar">
+              <div class="inline-actions">
+                <button class="btn btn-outline" id="btn-log-expand">展开</button>
+                <label class="toggle"><input type="checkbox" id="auto-scroll" checked /> 自动滚动</label>
+              </div>
+              <div class="inline-actions">
+                <button class="btn btn-outline" id="btn-log-copy">复制日志</button>
+                <button class="btn btn-outline" id="btn-log-clear">清空</button>
+              </div>
+            </div>
+            <pre class="log-output" id="deploy-log"></pre>
+          </div>
+        </article>
+
+        {% if run_enabled %}
+        <article class="panel" id="panel-run">
+          <div class="panel-header">
+            <div>
+              <h2 class="panel-title">运行 Demo</h2>
+              <p class="panel-subtitle">推理流会在此区域实时展示。</p>
+            </div>
+            <span class="badge" id="run-badge">Idle</span>
+          </div>
+          <div class="form-actions">
+            <button class="btn btn-outline" id="btn-camera-check" disabled>检测摄像头</button>
+            <span class="status-line" id="camera-status">未检测</span>
+            <button class="btn btn-primary" id="btn-run" disabled>运行 Demo</button>
+            <button class="btn btn-ghost" id="btn-stop" disabled>停止 Demo</button>
+            <span class="status-line" id="run-status">未运行</span>
+          </div>
+          <div class="media-frame">
+            <img id="video" alt="demo stream" />
+          </div>
+          <pre class="log-output compact" id="run-log"></pre>
+          <div class="error-box" id="run-error" hidden></div>
+        </article>
+        {% else %}
+        <article class="panel" id="panel-preview">
+          <div class="panel-header">
+            <div>
+              <h2 class="panel-title">Demo 预览</h2>
+              <p class="panel-subtitle">该 Demo 仅提供环境配置，无实时运行项。</p>
+            </div>
+            <span class="badge warn">Deploy Only</span>
+          </div>
+          <div class="media-frame">
+            {% if demo.media %}
+            <img src="{{ demo.media[0].src }}" alt="{{ demo.media[0].alt or demo.name }}" loading="lazy" />
+            {% endif %}
+          </div>
+        </article>
+        {% endif %}
+      </div>
+
+      <aside class="dashboard-side">
+        <article class="panel">
+          <div class="panel-header">
+            <div>
+              <h2 class="panel-title">连接要求</h2>
+              <p class="panel-subtitle">确保网络与权限就绪。</p>
+            </div>
+          </div>
+          <ul class="checklist">
             <li>PC 与 Jetson 在同一网络</li>
             <li>账号具备 sudo 权限</li>
             <li>确保摄像头可用</li>
           </ul>
-        </div>
-      </div>
-    </section>
+        </article>
 
-    <section class="section">
-      <h2 class="panel-title">B. 一键部署</h2>
-      <div class="panel-grid">
-        <div class="panel">
-          <div class="form-actions">
-            <button class="cta-btn" id="btn-deploy" disabled>一键部署</button>
-            <button class="ghost-btn" id="btn-cancel" disabled>取消部署</button>
-            <span class="status" id="deploy-status">等待连接</span>
+        <article class="panel">
+          <div class="panel-header">
+            <div>
+              <h2 class="panel-title">部署内容</h2>
+              <p class="panel-subtitle">自动化完成关键步骤。</p>
+            </div>
           </div>
-          <div class="toggle">
-            <label><input type="checkbox" id="auto-scroll" checked /> 自动滚动</label>
-          </div>
-          <pre class="log-box" id="deploy-log"></pre>
-        </div>
-        <div class="panel">
-          <h3>部署内容</h3>
-          <ul class="panel-list">
-            <li>自动安装 PyTorch 与依赖</li>
-            <li>下载 YOLO 预训练模型</li>
-            <li>准备推理服务环境</li>
+          <ul class="checklist">
+            <li><strong>安装依赖</strong> · PyTorch / ROS / 基础工具</li>
+            <li><strong>下载资源</strong> · 模型 / 镜像 / 组件</li>
+            <li><strong>准备服务</strong> · 推理 / 环境配置</li>
           </ul>
-        </div>
-      </div>
-    </section>
+        </article>
 
-    <section class="section">
-      <h2 class="panel-title">C. 运行 Demo</h2>
-      <div class="panel-grid">
-        <div class="panel">
-          <div class="form-actions">
-            <button class="cta-btn" id="btn-run" disabled>运行 Demo</button>
-            <button class="ghost-btn" id="btn-stop" disabled>停止 Demo</button>
-            <span class="status" id="run-status">未运行</span>
+        {% if run_enabled %}
+        <article class="panel">
+          <div class="panel-header">
+            <div>
+              <h2 class="panel-title">运行提示</h2>
+              <p class="panel-subtitle">排查常见问题。</p>
+            </div>
           </div>
-          <div class="video-wrap">
-            <img id="video" alt="YOLO Stream" />
-          </div>
-          <pre class="log-box" id="run-log"></pre>
-        </div>
-        <div class="panel">
-          <h3>运行提示</h3>
-          <ul class="panel-list">
-            <li>摄像头被占用时会失败</li>
+          <ul class="checklist">
+            <li>摄像头被占用会导致启动失败</li>
             <li>首次启动模型加载较慢</li>
             <li>停止后端口会自动释放</li>
           </ul>
-          <div class="error-box" id="run-error" hidden></div>
-        </div>
-      </div>
+          <div class="error-box" id="run-error-side" hidden></div>
+        </article>
+        {% endif %}
+      </aside>
     </section>
   </main>
+
+  <div class="log-overlay" id="log-overlay" hidden></div>
 
   <script src="/static/app.js"></script>
 </body>

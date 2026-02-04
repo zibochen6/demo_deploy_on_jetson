@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8" />
@@ -6,18 +6,18 @@
   <title>Jetson Demo 平台</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Manrope:wght@400;500;600&family=Space+Grotesk:wght@600;700&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&family=Sora:wght@600;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/static/styles.css" />
   <script src="https://cdn.tailwindcss.com"></script>
 </head>
-<body class="bg-carbon text-slate-100">
+<body>
   <div class="noise-overlay"></div>
   <header class="topbar">
     <div class="brand">seeed studio</div>
     <nav class="pill-nav">
       <span class="pill pill-active">Getting Started</span>
-      <span class="pill">Technology</span>
-      <span class="pill">GitHub</span>
+      <span class="pill">Deploy</span>
+      <span class="pill">Jetson</span>
     </nav>
   </header>
 
@@ -26,26 +26,26 @@
       <div>
         <p class="hero-kicker">Jetson Demo Platform</p>
         <h1 class="hero-title">Deploy once, stream everywhere.</h1>
-        <p class="hero-desc">在 PC 浏览器统一管理 Jetson Demo，一键部署 YOLO 推理环境，并实时观看检测视频流。</p>
+        <p class="hero-desc">在 PC 浏览器统一管理 Jetson Demo：一键部署推理环境，实时查看视频流与日志。</p>
       </div>
       <div class="hero-cta">
-        <a class="cta-btn" href="#demos">Explore Demos</a>
+        <a class="btn btn-primary" href="#demos">Explore Demos</a>
       </div>
     </section>
 
     <section id="demos" class="section">
       <div class="section-title">
         <h2>Latest Demos</h2>
-        <div class="section-actions">
-          <button class="icon-btn" aria-label="previous">&#x2039;</button>
-          <button class="icon-btn" aria-label="next">&#x203A;</button>
-        </div>
       </div>
 
       <div class="demo-grid" id="demo-list">
         {% for demo in demos %}
+        {% set thumb = demo.media[1] if demo.media and demo.media|length > 1 else (demo.media[0] if demo.media else None) %}
         <article class="demo-card">
           <div class="demo-thumb">
+            {% if thumb %}
+            <img src="{{ thumb.src }}" alt="{{ thumb.alt or demo.name }}" loading="lazy" />
+            {% endif %}
             <div class="demo-chip">{{ demo.tags | join(' · ') }}</div>
           </div>
           <div class="demo-body">

@@ -39,12 +39,20 @@ class DemoConfig:
         return list(self.raw.get("tags", []) or [])
 
     @property
+    def media(self) -> list[dict]:
+        return list(self.raw.get("media", []) or [])
+
+    @property
     def deploy(self) -> dict:
         return self.raw.get("deploy", {})
 
     @property
     def run(self) -> dict:
         return self.raw.get("run", {})
+
+    @property
+    def status(self) -> dict:
+        return self.raw.get("status", {})
 
 
 class DemoRegistry:
@@ -61,7 +69,7 @@ class DemoRegistry:
 def load_registry() -> DemoRegistry:
     if not DEMOS_JSON.exists():
         raise RuntimeError(f"demos.json not found: {DEMOS_JSON}")
-    with DEMOS_JSON.open("r", encoding="utf-8") as f:
+    with DEMOS_JSON.open("r", encoding="utf-8-sig") as f:
         data = json.load(f)
     demos = data.get("demos", [])
     if not isinstance(demos, list):

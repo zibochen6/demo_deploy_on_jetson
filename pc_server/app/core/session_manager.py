@@ -11,7 +11,7 @@ from fastapi import WebSocket
 from .config import LOG_BUFFER_LINES
 from .ssh_client import SSHClientWrapper
 from .tunnel import Tunnel
-from .utils import RingBuffer
+from .utils import RingBuffer, sanitize_log_line
 
 
 @dataclass
@@ -23,6 +23,7 @@ class Session:
     username: str
     password: str
     deployed_demos: set[str] = field(default_factory=set)
+    demo_overrides: Dict[str, dict] = field(default_factory=dict)
 
 
 @dataclass
@@ -45,6 +46,8 @@ class RunSession:
     demo_id: str
     status: str = "STARTING"
     remote_pid: Optional[int] = None
+    remote_port: Optional[int] = None
+    remote_script: Optional[str] = None
     tunnel: Optional[Tunnel] = None
     local_port: Optional[int] = None
     log_buffer: RingBuffer = field(default_factory=lambda: RingBuffer(LOG_BUFFER_LINES))
@@ -137,12 +140,14 @@ class SessionManager:
                 self.run_by_demo.pop((run.session_id, run.demo_id), None)
 
     def append_job_log(self, job: DeployJob, line: str) -> None:
-        job.log_buffer.append(line)
-        self._broadcast(job.ws_clients, {"type": "log", "data": line})
+        cleaned = sanitize_log_line(line)
+        job.log_buffer.append(cleaned)
+        self._broadcast(job.ws_clients, {"type": "log", "data": cleaned})
 
     def append_run_log(self, run: RunSession, line: str) -> None:
-        run.log_buffer.append(line)
-        self._broadcast(run.ws_clients, {"type": "log", "data": line})
+        cleaned = sanitize_log_line(line)
+        run.log_buffer.append(cleaned)
+        self._broadcast(run.ws_clients, {"type": "log", "data": cleaned})
 
     def set_job_status(self, job: DeployJob, status: str, exit_code: Optional[int] = None) -> None:
         job.status = status

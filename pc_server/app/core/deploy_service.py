@@ -2,23 +2,71 @@ from __future__ import annotations
 
 import shlex
 import time
+from datetime import datetime, timezone
+from urllib.parse import urlparse
+
+import httpx
 
 from .config import resolve_path
 from .session_manager import DeployJob, Session, SessionManager
 from .utils import LineBuffer
 
 
+def _build_raw_github_url(repo_url: str, ref: str, path: str) -> str | None:
+    if not repo_url:
+        return None
+    parsed = urlparse(repo_url)
+    if parsed.scheme not in {"http", "https"}:
+        return None
+    if parsed.netloc not in {"github.com", "www.github.com"}:
+        return None
+    parts = parsed.path.strip("/").split("/")
+    if len(parts) < 2:
+        return None
+    owner = parts[0]
+    repo = parts[1]
+    if repo.endswith(".git"):
+        repo = repo[:-4]
+    clean_path = path.lstrip("/")
+    if not clean_path:
+        return None
+    return f"https://raw.githubusercontent.com/{owner}/{repo}/{ref}/{clean_path}"
+
+
+def _load_script_bytes(deploy_cfg: dict) -> tuple[bytes, str]:
+    script_url = deploy_cfg.get("local_script_url", "")
+    if not script_url:
+        repo_url = deploy_cfg.get("script_repo", "")
+        script_ref = deploy_cfg.get("script_ref", "main")
+        script_path = deploy_cfg.get("script_path", "")
+        script_url = _build_raw_github_url(repo_url, script_ref, script_path) or ""
+
+    if script_url:
+        with httpx.Client(timeout=30.0, follow_redirects=True) as client:
+            resp = client.get(script_url)
+        if resp.status_code != 200:
+            raise RuntimeError(f"download failed ({resp.status_code}): {script_url}")
+        if resp.content is None or len(resp.content) == 0:
+            raise RuntimeError(f"download empty: {script_url}")
+        return resp.content, script_url
+
+    local_script_path = deploy_cfg.get("local_script_path", "")
+    if local_script_path:
+        local_script = resolve_path(local_script_path)
+        if local_script.exists():
+            return local_script.read_bytes(), str(local_script)
+
+    raise FileNotFoundError("deploy script not configured")
+
+
 def run_deploy(manager: SessionManager, job: DeployJob, session: Session, demo: dict) -> None:
     deploy_cfg = demo.get("deploy", {})
-    local_script = resolve_path(deploy_cfg.get("local_script_path", ""))
     remote_dir = deploy_cfg.get("remote_dir", "")
     remote_script_name = deploy_cfg.get("remote_script_name", "setup.sh")
     run_as_sudo = bool(deploy_cfg.get("run_as_sudo", False))
+    marker_path = deploy_cfg.get("marker_path", "")
+    version = deploy_cfg.get("version") or demo.get("status", {}).get("version", "")
 
-    if not local_script.exists():
-        manager.set_job_status(job, "FAILED", exit_code=-1)
-        manager.append_job_log(job, f"local script not found: {local_script}")
-        return
     if not remote_dir:
         manager.set_job_status(job, "FAILED", exit_code=-1)
         manager.append_job_log(job, "remote_dir not configured")
@@ -29,10 +77,11 @@ def run_deploy(manager: SessionManager, job: DeployJob, session: Session, demo: 
 
     try:
         try:
-            script_data = local_script.read_bytes()
+            script_data, script_source = _load_script_bytes(deploy_cfg)
+            manager.append_job_log(job, f"using deploy script: {script_source}")
         except Exception as exc:
             manager.set_job_status(job, "FAILED", exit_code=-1)
-            manager.append_job_log(job, f"read local script failed: {exc}")
+            manager.append_job_log(job, f"load deploy script failed: {exc}")
             return
         normalized = script_data.replace(b"\r\n", b"\n").replace(b"\r", b"\n")
         if normalized != script_data:
@@ -122,6 +171,36 @@ def run_deploy(manager: SessionManager, job: DeployJob, session: Session, demo: 
                     )
                 except Exception:
                     manager.append_job_log(job, "warn: chown remote_dir failed; run may need sudo")
+
+            if marker_path:
+                marker_full = (
+                    marker_path
+                    if marker_path.startswith("/")
+                    else f"{remote_dir.rstrip('/')}/{marker_path.lstrip('/')}"
+                )
+                installed_at = datetime.now(timezone.utc).isoformat()
+                marker_payload = f"installed_at={installed_at}\nversion={version}\n"
+                marker_bytes = marker_payload.encode("utf-8")
+                wrote_marker = False
+                try:
+                    ssh.sftp_put_bytes(marker_bytes, marker_full)
+                    wrote_marker = True
+                except Exception as exc:
+                    manager.append_job_log(job, f"warn: sftp write marker failed, fallback to sudo: {exc}")
+                    try:
+                        ssh.write_file_sudo(marker_full, marker_bytes)
+                        wrote_marker = True
+                    except Exception as exc2:
+                        manager.append_job_log(job, f"warn: write marker failed: {exc2}")
+                if wrote_marker and run_as_sudo:
+                    try:
+                        ssh.run_command(
+                            f"chown {shlex.quote(session.username)}:{shlex.quote(session.username)} {shlex.quote(marker_full)}",
+                            sudo=True,
+                        )
+                    except Exception:
+                        manager.append_job_log(job, "warn: chown marker failed")
+
             session.deployed_demos.add(demo.get("id", ""))
             manager.set_job_status(job, "DONE", exit_code=exit_code)
         else:

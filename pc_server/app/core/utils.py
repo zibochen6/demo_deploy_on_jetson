@@ -1,8 +1,21 @@
 from __future__ import annotations
 
+import re
 import socket
 from collections import deque
 from typing import Deque, Iterable
+
+
+ANSI_ESCAPE_RE = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
+CONTROL_CHARS_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
+
+
+def sanitize_log_line(line: str) -> str:
+    if not line:
+        return ""
+    cleaned = ANSI_ESCAPE_RE.sub("", line)
+    cleaned = CONTROL_CHARS_RE.sub("", cleaned)
+    return cleaned
 
 
 class LineBuffer:
