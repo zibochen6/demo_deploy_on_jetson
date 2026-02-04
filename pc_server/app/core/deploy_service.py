@@ -28,6 +28,17 @@ def run_deploy(manager: SessionManager, job: DeployJob, session: Session, demo: 
     remote_script = f"{remote_dir.rstrip('/')}/{remote_script_name}"
 
     try:
+        try:
+            script_data = local_script.read_bytes()
+        except Exception as exc:
+            manager.set_job_status(job, "FAILED", exit_code=-1)
+            manager.append_job_log(job, f"read local script failed: {exc}")
+            return
+        normalized = script_data.replace(b"\r\n", b"\n").replace(b"\r", b"\n")
+        if normalized != script_data:
+            script_data = normalized
+            manager.append_job_log(job, "note: normalized CRLF to LF before upload")
+
         manager.set_job_status(job, "UPLOADING")
         try:
             ssh.mkdir_p(remote_dir, sudo=False)
@@ -42,10 +53,10 @@ def run_deploy(manager: SessionManager, job: DeployJob, session: Session, demo: 
                 pass
         used_sudo_upload = False
         try:
-            ssh.sftp_put(str(local_script), remote_script)
+            ssh.sftp_put_bytes(script_data, remote_script)
         except Exception as exc:
             manager.append_job_log(job, f"sftp upload failed, fallback to sudo tee: {exc}")
-            ssh.put_file_with_sudo(str(local_script), remote_script)
+            ssh.write_file_sudo(remote_script, script_data)
             used_sudo_upload = True
         ssh.run_command(f"chmod +x {shlex.quote(remote_script)}", sudo=run_as_sudo or used_sudo_upload)
     except Exception as exc:

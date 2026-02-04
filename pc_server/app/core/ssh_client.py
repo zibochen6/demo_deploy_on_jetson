@@ -95,6 +95,15 @@ class SSHClientWrapper:
         finally:
             sftp.close()
 
+    def sftp_put_bytes(self, data: bytes, remote_path: str) -> None:
+        client = self._ensure_client()
+        sftp = client.open_sftp()
+        try:
+            with sftp.file(remote_path, "wb") as f:
+                f.write(data)
+        finally:
+            sftp.close()
+
     def mkdir_p(self, remote_dir: str, sudo: bool = False) -> None:
         cmd = f"mkdir -p '{remote_dir}'"
         exit_code, _, stderr = self.run_command(cmd, sudo=sudo)
