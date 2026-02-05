@@ -466,7 +466,16 @@ async def ws_runs(websocket: WebSocket, run_id: str):
     await websocket.accept()
     for line in run.log_buffer.list():
         await websocket.send_json({"type": "log", "data": line})
-    await websocket.send_json({"type": "status", "data": run.status})
+    info = {}
+    if run.remote_port is not None:
+        info["remote_port"] = run.remote_port
+    if run.local_port is not None:
+        info["local_port"] = run.local_port
+        info["local_url"] = f"http://127.0.0.1:{run.local_port}"
+    payload = {"type": "status", "data": run.status}
+    if info:
+        payload["info"] = info
+    await websocket.send_json(payload)
     run.ws_clients.add(websocket)
     try:
         while True:

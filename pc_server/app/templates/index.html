@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Jetson Demo 平台</title>
+  <title>Jetson Demo</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&family=Sora:wght@600;700&display=swap" rel="stylesheet" />
@@ -26,10 +26,11 @@
       <div>
         <p class="hero-kicker">Jetson Demo Platform</p>
         <h1 class="hero-title">Deploy once, stream everywhere.</h1>
-        <p class="hero-desc">在 PC 浏览器统一管理 Jetson Demo：一键部署推理环境，实时查看视频流与日志。</p>
+        <p class="hero-desc">Unified management of Jetson Demo via PC browser: Deploy the inference environment in one click, and view video streams and logs in real time.</p>
       </div>
       <div class="hero-cta">
         <a class="btn btn-primary" href="#demos">Explore Demos</a>
+        <a class="btn btn-ghost" href="https://wiki.seeedstudio.com/Jetson_FAQ/" target="_blank" rel="noopener">FAQs for Jetson Usage</a>
       </div>
     </section>
 
@@ -51,7 +52,7 @@
           <div class="demo-body">
             <h3>{{ demo.name }}</h3>
             <p>{{ demo.description }}</p>
-            <a class="demo-link" href="/demo/{{ demo.id }}">进入 / 一键部署</a>
+            <a class="demo-link" href="/demo/{{ demo.id }}">One-click deployment</a>
           </div>
         </article>
         {% endfor %}

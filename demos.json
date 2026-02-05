@@ -36,7 +36,8 @@
         "usb_index": 0,
         "csi_params": {"width": 1280, "height": 720, "flip": 0},
         "model_hint": "yolo11n.pt",
-        "venv_rel_path": "yolo11/.venv/bin/python"
+        "venv_rel_path": "yolo11/.venv/bin/python",
+        "require_camera_check": true
       },
       "status": {
         "installed": false,
@@ -86,7 +87,13 @@
       "name": "Live VLM WebUI",
       "description": "Deploy Live VLM WebUI with Ollama on Jetson for real-time vision-language interaction.",
       "tags": ["Jetson", "VLM", "WebUI"],
-      "media": [],
+      "media": [
+        {
+          "type": "image",
+          "src": "https://github.com/NVIDIA-AI-IOT/live-vlm-webui/raw/main/docs/images/chrome_app-running_light-theme.jpg",
+          "alt": "YOLO realtime detection preview"
+        }
+      ],
       "deploy": {
         "local_script_path": "demo_scripts/setup_live_vlm_webui.sh",
         "remote_dir": "/tmp/oneclick_demos/live_vlm_webui",
@@ -97,7 +104,16 @@
         "version": "live-vlm-webui-ollama"
       },
       "run": {
-        "enabled": false
+        "enabled": true,
+        "type": "webui",
+        "remote_port": 8090,
+        "run_cmd": "{bin} --host 0.0.0.0 --port {port}",
+        "scheme": "https",
+        "allow_insecure": true,
+        "health_path": "/",
+        "health_any": true,
+        "health_timeout": 120,
+        "require_camera_check": true
       },
       "status": {
         "installed": false,

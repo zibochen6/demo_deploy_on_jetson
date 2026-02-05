@@ -158,9 +158,12 @@ class SessionManager:
             payload["exit_code"] = exit_code
         self._broadcast(job.ws_clients, payload)
 
-    def set_run_status(self, run: RunSession, status: str) -> None:
+    def set_run_status(self, run: RunSession, status: str, info: dict | None = None) -> None:
         run.status = status
-        self._broadcast(run.ws_clients, {"type": "status", "data": status})
+        payload = {"type": "status", "data": status}
+        if info:
+            payload["info"] = info
+        self._broadcast(run.ws_clients, payload)
 
     def _broadcast(self, clients: Set[WebSocket], payload: dict) -> None:
         if not clients:

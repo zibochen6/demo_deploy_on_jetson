@@ -39,7 +39,11 @@
       btnRun.disabled = true;
       return;
     }
-    btnRun.disabled = !(deployReady && cameraReady);
+    if (requireCameraCheck) {
+      btnRun.disabled = !(deployReady && cameraReady);
+      return;
+    }
+    btnRun.disabled = !deployReady;
   }
 
   function updateCameraCheckAvailability() {
@@ -48,9 +52,50 @@
   }
 
   function resetCameraCheck(message = "未检测") {
-    cameraReady = false;
-    if (cameraStatus) setStatusLine(cameraStatus, message, "");
+    if (requireCameraCheck) {
+      cameraReady = false;
+      if (cameraStatus) setStatusLine(cameraStatus, message, "");
+    }
     updateRunAvailability();
+  }
+
+  function updateWebuiUI(running) {
+    if (!webuiActions) return;
+    if (runType !== "webui") {
+      webuiActions.hidden = true;
+      return;
+    }
+    webuiActions.hidden = !running;
+  }
+
+  function updateWebuiLink(url) {
+    if (webuiUrl) webuiUrl.textContent = url || "";
+    if (!btnOpenWebui) return;
+    if (url) {
+      btnOpenWebui.setAttribute("href", url);
+      btnOpenWebui.setAttribute("aria-disabled", "false");
+      btnOpenWebui.classList.remove("btn-disabled");
+    } else {
+      btnOpenWebui.removeAttribute("href");
+      btnOpenWebui.setAttribute("aria-disabled", "true");
+      btnOpenWebui.classList.add("btn-disabled");
+    }
+  }
+
+  function resolveWebuiUrl() {
+    const remoteUrl = runInfo?.remote_url;
+    if (remoteUrl) return remoteUrl;
+    const scheme = runInfo?.scheme || "http";
+    const remotePort = runInfo?.remote_port;
+    const hostVal = (host?.value || "").trim();
+    if (runType === "webui" && hostVal && remotePort) {
+      return `${scheme}://${hostVal}:${remotePort}`;
+    }
+    const localUrl = runInfo?.local_url;
+    if (localUrl) return localUrl;
+    const localPort = runInfo?.local_port;
+    if (localPort) return `${scheme}://127.0.0.1:${localPort}`;
+    return "";
   }
 
   function setFieldError(input, errorEl, message) {
@@ -115,6 +160,8 @@
   if (!demoId) return;
 
   const runEnabled = document.body.dataset.runEnabled === "true";
+  const runType = document.body.dataset.runType || "";
+  const requireCameraCheck = document.body.dataset.requireCamera === "true";
   const previewSrc = document.body.dataset.previewSrc || "";
   const defaultRemoteDir = document.body.dataset.remoteDir || "";
 
@@ -152,6 +199,10 @@
   const runStatus = document.getElementById("run-status");
   const btnCameraCheck = document.getElementById("btn-camera-check");
   const cameraStatus = document.getElementById("camera-status");
+  const webuiActions = document.getElementById("webui-actions");
+  const btnOpenWebui = document.getElementById("btn-open-webui");
+  const webuiUrl = document.getElementById("webui-url");
+  const runErrorSide = document.getElementById("run-error-side");
   const runLog = document.getElementById("run-log");
   const runError = document.getElementById("run-error");
   const video = document.getElementById("video");
@@ -176,6 +227,7 @@
   let deployReady = false;
   let cameraReady = false;
   let runState = "IDLE";
+  let runInfo = {};
 
   if (remoteDir && defaultRemoteDir) {
     remoteDir.value = defaultRemoteDir;
@@ -183,6 +235,12 @@
 
   if (video && previewSrc) {
     video.src = previewSrc;
+  }
+
+  if (!requireCameraCheck) {
+    cameraReady = true;
+    if (btnCameraCheck) btnCameraCheck.hidden = true;
+    if (cameraStatus) cameraStatus.hidden = true;
   }
 
   function validateConnectForm() {
@@ -381,12 +439,17 @@
       setStatusLine(runStatus, "请先完成部署", "error");
       return;
     }
-    if (!cameraReady) {
+    if (requireCameraCheck && !cameraReady) {
       setStatusLine(runStatus, "请先检测摄像头", "error");
       return;
     }
     runLog.textContent = "";
     if (runError) runError.hidden = true;
+    if (runErrorSide) runErrorSide.hidden = true;
+    runInfo = {};
+    updateWebuiUI(false);
+    updateWebuiLink("");
+    if (btnOpenWebui) btnOpenWebui.textContent = "打开 WebUI";
     runState = "STARTING";
     updateRunAvailability();
     btnRun.disabled = true;
@@ -405,12 +468,28 @@
         if (msg.type === "log") {
           appendLog(runLog, msg.data, true);
         } else if (msg.type === "status") {
+          if (msg.info) {
+            runInfo = msg.info;
+          }
           if (msg.data === "RUNNING") {
             setBadge(runBadge, "Running", "ok");
             setStatusLine(runStatus, "运行中", "ok");
             runState = "RUNNING";
             updateRunAvailability();
-            if (pendingVideoUrl && video) {
+            updateWebuiUI(true);
+            if (runType === "webui") {
+              setStatusLine(runStatus, "运行中（点击按钮打开）", "ok");
+              const url = resolveWebuiUrl();
+              if (btnOpenWebui) {
+                btnOpenWebui.textContent = url ? `打开 WebUI (${url})` : "打开 WebUI";
+              }
+              updateWebuiLink(url);
+              if (video) {
+                video.hidden = false;
+                if (!video.src && previewSrc) video.src = previewSrc;
+              }
+            } else if (pendingVideoUrl && video) {
+              video.hidden = false;
               video.src = pendingVideoUrl;
             }
           } else if (msg.data === "ERROR") {
@@ -419,14 +498,22 @@
             runState = "ERROR";
             updateRunAvailability();
             btnStop.disabled = true;
+            updateWebuiUI(false);
             if (video) video.src = previewSrc;
+            if (video) video.hidden = false;
+            if (runType === "webui" && runErrorSide) {
+              runErrorSide.hidden = false;
+              runErrorSide.textContent = "WebUI 启动失败，请检查日志与 Jetson 服务状态。";
+            }
           } else if (msg.data === "STOPPED") {
             setBadge(runBadge, "Stopped", "");
             setStatusLine(runStatus, "已停止", "");
             runState = "STOPPED";
             updateRunAvailability();
             btnStop.disabled = true;
+            updateWebuiUI(false);
             if (video) video.src = previewSrc;
+            if (video) video.hidden = false;
           } else {
             setStatusLine(runStatus, msg.data, "");
           }
@@ -582,6 +669,26 @@
     } finally {
       updateRunAvailability();
       updateCameraCheckAvailability();
+    }
+  });
+
+  btnOpenWebui?.addEventListener("click", (event) => {
+    const url = resolveWebuiUrl();
+    if (!url) {
+      event.preventDefault();
+      if (webuiUrl) webuiUrl.textContent = "WebUI 地址不可用";
+      return;
+    }
+    updateWebuiLink(url);
+    const width = Math.min(1280, screen.availWidth - 80);
+    const height = Math.min(900, screen.availHeight - 80);
+    const left = Math.max(0, screen.availWidth - width - 20);
+    const top = Math.max(0, Math.round((screen.availHeight - height) / 2));
+    const features = `noopener,noreferrer,width=${width},height=${height},left=${left},top=${top}`;
+    const win = window.open(url, "webui", features);
+    if (win) {
+      win.focus();
+      event.preventDefault();
     }
   });
 
